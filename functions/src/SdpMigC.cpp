@@ -140,6 +140,9 @@ double CalculateTR(int c_x,
 
 // Interpolate
 // Get gain values for time and site
+// Interpolation required as originally gain function was provided as a list of
+// (time, gain) values that needed to be interpolated
+
 double Interpolate(
     const int& time,
     const int& s,
@@ -183,8 +186,10 @@ double Interpolate(
 } // end Interpolate
 
 
-// Predation
-// Calculates the reduction in fitness based on predation
+// --------------------      Predation.    ------------------------------------
+// Calculates the predation risk based on background predation risk, foraging-
+// intensity-dependent predation risk and body-reserves-dependent predation risk
+
 double Predation (
     const int& time, 
     const int& site, 
@@ -252,8 +257,11 @@ double FindF (
 } // end FindF
 
 
-// Foraging
-// Major Foraging function: Optimization of Foraging intensity
+// -----------------         Foraging.       -----------------------------------
+// Major Foraging function: 
+// Calculates the optimal foraging intensity, given current body condition, expected 
+// new body condition and the (predation and starvation) risk involved 
+
 double Foraging(const int& time, 
                 const int& site, 
                 const int& x
@@ -336,12 +344,18 @@ double Foraging(const int& time,
     Freward = f1;
   }
   return Freward;
-} // end Foraging
+} // end Foraging --------------------------------------------------------------
 
 
-// Flying
-// Major Flying Function - find best locatioon for time, site and x 
+// -----------------------   Flying    ----------------------------------------
+
+// Major Flying Function - 
+// calculates consequences of flying from current site "site" to a destination 
+// site "dep_site", based on body resources required to cover the distance and
+// time required to reach destination
+
 // [[Rcpp::export]]
+
 double Flying(
     const int& time, 
     const int& site, 
@@ -357,32 +371,26 @@ double Flying(
   Whold = 0.0;
   f = 1.0;
   
-  
   range = sdp::c * (1.0 - (1.0/ (sqrt(1.0 + ( ((double)(x) - (1 - f) * x)/(double)(sdp::MaxX)) )))); //determine Range
   
-  totalD = sdp::dist(site, dep_site);
-  for (int h = 0; h < sdp::WindProb.size(); ++h)
+  totalD = sdp::dist(site, dep_site); // distance between starting site and destination
+  for (int h = 0; h < sdp::WindProb.size(); ++h) // wind support
   {
-    
     distance = totalD * (1.0 + sdp::WindAssist(h));
 
-    
     Sqr_c = (sdp::c * sdp::c);
     Sqr_ca = (sdp::c - (range - distance))*(sdp::c - (range - distance));
     nextx = ((Sqr_c/Sqr_ca) - 1.0) * sdp::MaxX;
     t = (double)(time) + (distance / sdp::speed);
 
-    
     if (t >= (sdp::MaxT)) interpolReward = 0.0;
     else  if (nextx <= 0.0) interpolReward = 0.0;
     else
     {
-      
       res1 = nextx - (int)(nextx);
       res2 = (int)(nextx) + 1.0 - nextx;
       tim1 = t - (int)(t);
       tim2 = (int)(t) + 1.0 - t;
-      
       
       if ((nextx+1.0) > (double)(sdp::MaxX))
       {
@@ -398,13 +406,12 @@ double Flying(
       part4 = tim2*res2*sdp::FMatrix((int)(t),   dep_site, (int)(nextx));
      
       interpolReward = part1+part2+part3+part4;
-      
     }
     double help_old = Whold;
     Whold = help_old + (sdp::WindProb(h) * interpolReward);
   } //End h
   return Whold;
-}  // end Flying
+}  // end Flying ---------------------------------------------------------------
 
 
 ////////////////////////////////////////////////////////////////
@@ -441,9 +448,9 @@ void Init( int MaxT,
            )
 {
   // Basic Parms
-  sdp::MaxT   = MaxT;
-  sdp::NSites = NSites;
-  sdp::MaxX   = MaxX;
+  sdp::MaxT   = MaxT; //Maximum time the model runs
+  sdp::NSites = NSites; // Maximum number of sites
+  sdp::MaxX   = MaxX;  // Maximum level of body reserves
   
   // Individual
   sdp::B0 = B0;
@@ -481,10 +488,11 @@ Rcpp::List BackwardIteration(bool pbar) {
   /// Terminal Reward
   arma::cube FM_TR = arma::zeros<arma::cube>(sdp::MaxT+1, sdp::NSites, sdp::MaxX+1);
   
-  for (int r = 0; r <= sdp::MaxT; ++r)
+  for (int r = 0; r <= sdp::MaxT; ++r) //loop through all time-steps
   {
-    for (int c = 0; c <= sdp::MaxX; ++c)
+    for (int c = 0; c <= sdp::MaxX; ++c) //loop through all body condition levels
     {
+      // Calculate terminal reward
       FM_TR(r, (sdp::NSites-1), c) = CalculateTR(c, r, sdp::w, sdp::xc, sdp::B0, sdp::nTR_x, sdp::nTR_y);
     }
   }
@@ -525,22 +533,26 @@ Rcpp::List BackwardIteration(bool pbar) {
         max_Reward = 0.0;
         decision = 0.0;
         
-        
-        double f_help = Foraging(time, site, x);
+        double f_help = Foraging(time, site, x); // calculate reward from foraging
         sdp::FMatrix(time, site, x) = f_help;
         
        
-        decision   = - sdp::Fintensity - 1.0;
+        decision   = - sdp::Fintensity - 1.0; // optimal foraging intensity
         sdp::DMatrix1(site, time, x) = decision;
 
-        max_Reward = Foraging(time, site, x);
-        
-        
+//        max_Reward = Foraging(time, site, x); // why call Foraging twice??
+        max_Reward = f_help;                  // shouldn't it be just like that?
+
+                
+// Caclulate reward from flying to another site
         for (int bb = 0; bb < sdp::NSites; ++bb) Mrew(bb) = 0.0;
-        for (int dest = 0; dest < sdp::NSites; ++dest)
+        for (int dest = 0; dest < sdp::NSites; ++dest) // loops thru all sites - why not exclude current?
         {
+          if (dest == site) Mrew[dest] = 0.0
+          else {
           float help_z = Flying(time, site, x, dest);
           Mrew[dest] = help_z;
+          }
         }
 
         double help_flying = 0.0;
