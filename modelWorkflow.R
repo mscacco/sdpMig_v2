@@ -3,53 +3,73 @@ library(sf)
 sf_use_s2(FALSE)
 library(Rcpp)
 library(RcppArmadillo)
-Rcpp::sourceCpp("OptimSPD/src/SdpMigC.cpp")
-source("OptimSPD/R/OptimSPD.R")
-source("functions/fnc.R")
 
+# Load R and C++ model functions
+Rcpp::sourceCpp("functions/src/SdpMigC.cpp")
+source("functions/R/OptimSPD_fnc.R")
+
+#___________
 ### Grid ###
 hex <- st_read("inputData/hexagonalGrid_100km_laea_EuropeNoWater.gpkg")
 
 europe      <- rnaturalearth::ne_countries(scale = "medium", continent = "europe", returnclass = "sf")
 europe_laea <- st_transform(europe, st_crs(hex)) %>% st_intersection(st_bbox(hex) %>% st_as_sfc())
 
-ggplot() +
-  geom_sf(data = europe_laea) +
-  geom_sf(data = hex, fill = NA)
+ggplot() + geom_sf(data = europe_laea) + geom_sf(data = hex, fill = NA)
 
-
-### Environment (merge hexagon properties with species wintering nd breeding ranges) ###
+#__________________
+### Environment ###
 siteEnv  <- readRDS("./inputData/EnvTab_forModel.rds") %>% st_as_sf()
 
-# plot(siteEnv %>% filter(yr == 2016) %>% group_by(yr, hex_id) %>% summarise(open = max(openingDay_wijk)) %>% dplyr::select(open))
-# plot(siteEnv %>% filter(yr == 2016, yday==1) %>% dplyr::select(hex_type))
+ggplot() + ggtitle("Opening Day") + geom_sf(data = hex, aes(fill=NULL)) +
+  geom_sf(data = filter(siteEnv, yday==1), aes(fill = openingDay_0)) + #opening day (one value per hex)
+  scale_fill_viridis_c(name = "DOY", na.value = "transparent") + theme_minimal()
 
+ggplot() + ggtitle("Geese ranges") + geom_sf(data = hex, aes(fill=NULL)) +
+  geom_sf(data = filter(siteEnv, yday==1), aes(fill = hex_type)) +
+  scale_fill_manual(values=c("darkorange","grey","blue"), name="Hex type", na.value = "transparent") +  theme_minimal()
 
-### Extract body mass ###
-# from Dunning 2007. A transcript of the body masses for waterfowl (Anatidae family) is provided in the scripts folder
+#______________________
+### Start/End sites ###
+# All combinations of start (wintering) and end (breeding) hexagons
+allWintSites <- unique(siteEnv$hex_id[siteEnv$hex_type == "wintering"])
+allBreedSites <- unique(siteEnv$hex_id[siteEnv$hex_type == "breeding"])
+StartEndTab <- expand.grid(wintering = allWintSites, breeding = allBreedSites)
+
+#________________
+### Sites Tab ###
+# Input tab for model below, with one row per site and with columns in the correct order
+siteTab <- siteEnv %>% filter(!duplicated(hex_id)) %>%
+  select(hex_id, openingDay_0, x, y) %>%
+  st_drop_geometry()
+
+#________________
+### Body mass ###
+# from Dunning 2007. A transcript of the body masses for waterfowl (Anatidae family) is provided in inputData
 BMdf <- read.csv("inputData/Anatidae_bodymass_fromHandbookbyDunning.csv") %>%
   filter(grepl("Anser albifrons", Species.Name)) %>% 
   group_by(Common.Name) %>% summarise(mean = mean(Mean),
                                       min  = min(Mean),
                                       max  = max(Mean))
 
+#______________________________
 ### User-defined parameters ###
 parms <- list(
   
-  ### Project/species name
+  # Project/species name
   projectName = "Anser albifrons",
   
-  ### Model run parameters
-  startDay = 61,  ## Start date given as DOY (day of the year), see above why 61. This will be treated as "day 1" in the rest of the parametrisation.
-  MaxRun   = 150,  ## Maximum time run in days, starting from startDay. This means the mode will run from March 1st till July.
+  # Model run parameters
+  startDOY = 61,  ## Start date given as DOY (day of the year), see above why 61. This will be treated as "day 1" in the rest of the parametrisation.
+  endDOY   = 180,  ## End date as DOY. This means the mode will run for nDays = endDOY-startDOY.
   arrWindow = 14,  ## Arrival window in days, needed for calculating terminal reward
   NSites = length(unique(siteEnv$hex_id)), ## N. of all potential stopover (breeding sites are excluded one by one at a later stage)
   
-  ### Species-specific Parameters
+  # Species-specific Parameters
   order = "Anseriformes", # species order, used to calculate BMR. It can be NULL, in which case a generic equation calculating BMR for flying birds is used
-  meanBodyMass_g = BMdf %>% pull(mean),
-  minBodyMass_g  = BMdf %>% pull(min),
-  maxBodyMass_g  = BMdf %>% pull(max),
+  meanBodyMass_g = BMdf$mean,
+  minBodyMass_g  = BMdf$min,
+  maxBodyMass_g  = BMdf$max,
   MaxX = 100,  ## Levels of body condition (N. steps dividing max body mass - lean min body mass )
   B0 = 3,       ## Future reproductive success (N. juveniles survived in the future)
   
@@ -64,26 +84,25 @@ parms <- list(
 )
 
 
-### All combinations of start (wintering) and end (breeding) hexagons ###
-StartEndTab <- siteEnv %>% filter(!is.na(hex_type), hex_type %in% c('wintering', 'breeding'), !duplicated(hex_id)) %>%
-  dplyr::select(hex_id, hex_type) %>% st_drop_geometry() %>% 
-  expand_grid(wintering = hex_id[hex_type=="wintering"], breeding = hex_id[hex_type!="wintering"])
+#_____________
+### Model ###
 
+# (one model run per combination of wintering-breeding sites)
+i=1
+#lapply(1:nrow(StartEndTab), function(i){
+
+  sdp_sites <- makeSiteTab(siteTab    = siteTab,
+                           wintSite  = StartEndTab[i, "wintering"], 
+                           breedSite = StartEndTab[i, "breeding"], 
+                           listParms  = parms)
+  bwd <- bwdIteration(sdp_sites, pbar = FALSE)
   
-### Formatting of remaining parameters for the model ### 
-sdp_sites <- makeSiteTab(siteEnv    = siteEnv,
-                         year       = 2016,
-                         wintSites  = StartEndTab %>% slice(1) %>% pull(wintering), 
-                         breedSites = StartEndTab %>% slice(1) %>% pull(breeding), 
-                         listParms  = parms)
+  fwd <- fwdSimulation(bwd, NrInd = 100, start_t = 1, start_site = 1, start_x = c(25, 35))
+  
+  save(bwd,fwd, file="output/bwd_fwd_w1130_b2644.rdata")
+#})
 
-### Model ### 
-bwd <- bwdIteration(sdp_sites, pbar = FALSE)
-
-fwd <- fwdSimulation(bwd, NrInd = 100, start_t = 1, start_site = 1, start_x = c(25, 35))
-
-save(bwd,fwd, file="output/bwd_fwd_w1130_b2644.rdata")
-
-### Plotting ### 
-condProfile(simu = fwd[50:51,,], model = sdp_sites)
+# Plot simulation output
+condProfile(simu = fwd, model = sdp_sites)
 pltNetwork(simu = fwd, model = sdp_sites, map = europe_laea)
+

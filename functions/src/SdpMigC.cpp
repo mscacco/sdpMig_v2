@@ -548,7 +548,7 @@ Rcpp::List BackwardIteration(bool pbar) {
         for (int bb = 0; bb < sdp::NSites; ++bb) Mrew(bb) = 0.0;
         for (int dest = 0; dest < sdp::NSites; ++dest) // loops thru all sites - why not exclude current?
         {
-          if (dest == site) Mrew[dest] = 0.0
+          if (dest == site) Mrew[dest] = 0.0;
           else {
           float help_z = Flying(time, site, x, dest);
           Mrew[dest] = help_z;
