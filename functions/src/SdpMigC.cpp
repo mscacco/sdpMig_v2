@@ -369,7 +369,7 @@ double Flying(
   interpolReward = 0.0;
   totalD = 0.0;
   Whold = 0.0;
-  f = 1.0;
+  f = sdp::f; //1.0;
   
   range = sdp::c * (1.0 - (1.0/ (sqrt(1.0 + ( ((double)(x) - (1 - f) * x)/(double)(sdp::MaxX)) )))); //determine Range
   

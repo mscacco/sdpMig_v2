@@ -6,7 +6,7 @@ library(rnaturalearth)
 library(rnaturalearthdata)
 library(ggplot2)
 
-source("./Scripts/WaterfowlMigration/PLOT_functions.R")
+#source("./Scripts/WaterfowlMigration/PLOT_functions.R")
 
 ### Grid and borders for maps ###
 hex <- st_read("inputData/hexagonalGrid_100km_laea_EuropeNoWater.gpkg")
@@ -14,7 +14,8 @@ europe <- ne_countries(scale = "medium", continent = "europe", returnclass = "sf
 europe_laea <- st_transform(europe, st_crs(hex))
 
 ### Import model output ###
-load("output/bwd_fwd_w1130_b2644.rdata") #bwd, fwd
+outFld <- "/home/mscacco/ownCloud - mscacco@ab.mpg.de@owncloud.gwdg.de/Martina/ProgettiVari/WSL/KappaFlu/Outputs/Simulations/"
+load(paste0(outFld,"bwd_fwd_w1130_b2644_Nov4.rdata")) #bwd, fwd
 
 ### Count number of days spent in each site ###
 # in dim 2 of fwd we have: day, site, x, fly/not, death. 
@@ -72,8 +73,8 @@ ggplot() +
   geom_sf(data = migRoutes_lines, col = "black", linewidth = 1.5, alpha = 0.2) +
   geom_sf(data = migRoutes_pts, aes(size = stagDays), shape = 21, col = "black", fill = "darkorange") +
   scale_size(range = c(1, 10)) + # scale all point sizes to show bigger
-  #geom_sf(data = hex[hex$hex_id==wintID,], fill = "blue") +
-  #geom_sf(data = hex[hex$hex_id==breedID,], fill = "red") +
+  geom_sf(data = hex[hex$hex_id==wintID,], fill = "blue") +
+  geom_sf(data = hex[hex$hex_id==breedID,], fill = "red") +
   coord_sf(
     xlim = st_bbox(hex)[c("xmin", "xmax")],
     ylim = st_bbox(hex)[c("ymin", "ymax")],

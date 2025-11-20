@@ -36,13 +36,16 @@ CalcTR         <- function(x, t) {
   TR * SR + parms$B0
 }
 
+#################
+### Site Tab ###
+#################
 
 makeSiteTab <- function(siteEnv,
                         year,
                         wintSites, 
                         breedSites,
                         listParms,
-                        BMR_file = "simeon/inputData/BMRcalculation_perOrder_McNab2008.csv",
+                        BMR_file = "inputData/BMRcalculation_perOrder_McNab2008.csv",
                         pred_a1  = 2, pred_a2  = 2,
                         b0 = 1e-04, b1 = 0.001, b2 = 1e-04,
                         stoch = 1
@@ -130,12 +133,26 @@ makeSiteTab <- function(siteEnv,
   
   #___ Terminal Reward__________
   # Calculate terminal reward for breeding sites (nrow = N sites, ncol defining the "curve shape" of the terminal reward):
-  # x = DOY at which each site opens
-  xFTReward <- c(1, 
-                 siteEnv$openingDay_0[breedSites]-1, siteEnv$openingDay_0[breedSites], 
-                 siteEnv$openingDay_0[breedSites] + listParms$arrWindow, siteEnv$openingDay_0[breedSites] + listParms$arrWindow + 1, 
+  # x = DOY at which each site opens (by Martina: this seems wrong, it should be siteEnv$openingDay_0[siteEnv$hex_id==breedSites])
+  xFTReward <- c(1,
+                 siteEnv$openingDay_0[breedSites]-1, siteEnv$openingDay_0[breedSites],
+                 siteEnv$openingDay_0[breedSites] + listParms$arrWindow, siteEnv$openingDay_0[breedSites] + listParms$arrWindow + 1,
                  length(gain.x))
+  # xFTReward <- c(1,
+  #                siteEnv$openingDay_0[siteEnv$hex_id==breedSites]-1, siteEnv$openingDay_0[siteEnv$hex_id==breedSites],
+  #                siteEnv$openingDay_0[siteEnv$hex_id==breedSites] + listParms$arrWindow, siteEnv$openingDay_0[siteEnv$hex_id==breedSites] + listParms$arrWindow + 1,
+  #                length(gain.x))
+  # # !!! Martina changed x to be = model day at which site opens
+  # openBreed <- unique(siteEnv$openingDay_0[siteEnv$hex_id==breedSites]) - listParms$startDay
+  # xFTReward <- c(1,
+  #                openBreed-1,
+  #                openBreed,
+  #                openBreed + listParms$arrWindow,
+  #                openBreed + listParms$arrWindow + 1,
+  #                length(gain.x))
+  
   yFTReward <- c(0, 0, MaxReward, MaxReward, 0, 0)
+  plot(xFTReward, yFTReward, type="l")
   
   #___ Distances between all sites__________
   # Matrix of distances between all sites, coords are assumed to be in decimal degrees
@@ -255,10 +272,10 @@ bwdIteration <- function(obj, pbar = FALSE) {
        obj@Sites$gain$gain.y, # arma::mat
        obj@Sites$gain$gain.p, # arma::vec
        as.matrix(obj@Sites$expend) # arma::mat
-  ) 
+       ) 
   
   out <- BackwardIteration(pbar = pbar)
-  
+
   obj@Results$FitnessMatrix <- out[[1]]
   DM <- array(dim = c(dim(out[[2]]),2))
   DM[,,,1] <- out[[2]]

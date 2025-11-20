@@ -6,7 +6,8 @@ library(RcppArmadillo)
 
 # Load R and C++ model functions
 Rcpp::sourceCpp("functions/src/SdpMigC.cpp")
-source("functions/R/OptimSPD_fnc.R")
+source("functions/R/OptimSPD_fnc_wetland.R")
+#source("functions/R/OptimSPD_fnc.R")
 
 #___________
 ### Grid ###
@@ -36,12 +37,36 @@ allWintSites <- unique(siteEnv$hex_id[siteEnv$hex_type == "wintering"])
 allBreedSites <- unique(siteEnv$hex_id[siteEnv$hex_type == "breeding"])
 StartEndTab <- expand.grid(wintering = allWintSites, breeding = allBreedSites)
 
+#______________________________________________
+### Stopover suitability from wetland cover ###
+
+# Transform the percent wetland cover in a suitability value from 0 to 1
+siteEnv$suitability <- siteEnv$pctWetCover/100
+
 #________________
 ### Sites Tab ###
 # Input tab for model below, with one row per site and with columns in the correct order
 siteTab <- siteEnv %>% filter(!duplicated(hex_id)) %>%
-  select(hex_id, openingDay_0, x, y) %>%
-  st_drop_geometry()
+  select(hex_id, openingDay_0, x, y, suitability)
+
+#_________________________________
+### Exclude low wetland cover ###
+
+
+# Hex with wetland >= 50% but still including wintering and breeding grounds
+siteTab_wet <- filter(siteTab, suitability>=0.05 | hex_id %in% c(allWintSites,allBreedSites))
+
+# Plot all hexs vs wet hexs
+p1 <- ggplot() + ggtitle("Wetlands coverage") + 
+  geom_sf(data = hex, aes(fill=NULL)) +
+  geom_sf(data = filter(st_as_sf(siteTab), suitability>=0), aes(fill = suitability)) +
+  scale_fill_viridis_c(name = "% Wetland", na.value = "transparent") + theme_minimal()
+p2 <- ggplot() + ggtitle("Wetlands coverage > 5%") + 
+  geom_sf(data = hex, aes(fill=NULL)) +
+  geom_sf(data = filter(st_as_sf(siteTab_wet)), 
+          aes(fill = suitability)) +
+  scale_fill_viridis_c(name = "% Wetland", na.value = "transparent") + theme_minimal()
+cowplot::plot_grid(p1,p2,ncol=2)
 
 #________________
 ### Body mass ###
@@ -63,7 +88,7 @@ parms <- list(
   startDOY = 61,  ## Start date given as DOY (day of the year), see above why 61. This will be treated as "day 1" in the rest of the parametrisation.
   endDOY   = 180,  ## End date as DOY. This means the mode will run for nDays = endDOY-startDOY.
   arrWindow = 14,  ## Arrival window in days, needed for calculating terminal reward
-  NSites = length(unique(siteEnv$hex_id)), ## N. of all potential stopover (breeding sites are excluded one by one at a later stage)
+  NSites = nrow(siteTab_wet), ## N. of all potential stopover (breeding sites are excluded one by one at a later stage)
   
   # Species-specific Parameters
   order = "Anseriformes", # species order, used to calculate BMR. It can be NULL, in which case a generic equation calculating BMR for flying birds is used
@@ -74,6 +99,7 @@ parms <- list(
   B0 = 3,       ## Future reproductive success (N. juveniles survived in the future)
   
   # Flight capacities:
+  f = 0.6,  ## proportion of x that cannot be devoted to flying
   flightStrategy = NULL, # one of "landSoarer" or NULL (others). For estimation of flight cost based on Scacco et al. 2026
   speed_ms = 12.6, # Ground speed: either one numeric value in m/s or NULL. If provided, ground speed is assumed to be constant. If NULL, ground speed will be calculated based on wind support. For that, the arguments windTab_u/windTab_v must be provided within the makeSiteTab() function below.
   #speed_from_windSup = NULL, # Not yet implemented. Potentially an alternative equation to express ground speed as a function of wind support. If this is NULL and windSpeed_ms is also NULL, the default equation from Scacco et al. will be used to compute daily ground speeds from daily wind support values.
@@ -87,19 +113,21 @@ parms <- list(
 #_____________
 ### Model ###
 
+outFld <- "/home/mscacco/ownCloud - mscacco@ab.mpg.de@owncloud.gwdg.de/Martina/ProgettiVari/WSL/KappaFlu/Outputs/Simulations/"
+
 # (one model run per combination of wintering-breeding sites)
 i=1
 #lapply(1:nrow(StartEndTab), function(i){
 
-  sdp_sites <- makeSiteTab(siteTab    = siteTab,
+  sdp_sites <- makeSiteTab(siteTab   = st_drop_geometry(siteTab_wet),
                            wintSite  = StartEndTab[i, "wintering"], 
                            breedSite = StartEndTab[i, "breeding"], 
-                           listParms  = parms)
+                           listParms = parms)
   bwd <- bwdIteration(sdp_sites, pbar = FALSE)
   
   fwd <- fwdSimulation(bwd, NrInd = 100, start_t = 1, start_site = 1, start_x = c(25, 35))
   
-  save(bwd,fwd, file="output/bwd_fwd_w1130_b2644.rdata")
+  save(bwd,fwd, file=paste0(outFld,"bwd_fwd_w1130_b2644_myCode_80perDmax_wetGain.rdata"))
 #})
 
 # Plot simulation output

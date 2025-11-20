@@ -40,8 +40,10 @@ CalcTR         <- function(x, t) {
 ### Create Parameters Tab ###
 #############################
 
+# Major changes are marked with !!!
+
 # Inputs are: 
-# 1. a data.frame or matrix where the first two columns are: 1st col = sites ID (hexagons id), 2nd col = opening day as day of the year (Jan 1st being day 1), 3rd and 4th columns are coordinates (long and lat in decimal degrees). Potential additional columns are ignored.
+# 1. a data.frame or matrix of 4 columns in this order: 1st col = sites ID (hexagons id), 2nd col = opening day as day of the year (Jan 1st being day 1), 3rd and 4th columns are coordinates (long and lat in decimal degrees). Potential additional columns are ignored.
 # 2. two integers indicating the site ID (hexagon ID) of the wintering and breeding site. These should be among the IDs in the first column of data.
 # 3. the list of parameters from previous steps,
 # 4. optionally we can have matrices of environmental values (e.g. windTab) with dimensions nrow = Nsites and ncol = doy to make distance dependent on wind
@@ -75,7 +77,6 @@ makeSiteTab <- function(siteTab,
   siteTab_sort <- siteTab[hex_idx_new,]
   
   #___Model Days___
-  #calendarDays <- listParms$startDOY:listParms$endDOY
   modelRun <- length(listParms$startDOY:listParms$endDOY)
   
   #___ Basal Metabolic Rate__________ 
@@ -129,27 +130,35 @@ makeSiteTab <- function(siteTab,
     round(geosphere::daylength(as.numeric(x["y"]), 1:366), 1)
   }))
   #ggplot(siteTab_sort, aes(x = x, y = y, fill = daylength[,172])) + geom_point(shape=21, size=3) + coord_equal()
-  GainPerHour <- DMEmax_inX/max(daylength) #divide max intake by the maximum number of foraging hours to adjust gain by daylength
-  
+
   # Opening days in model days. It cannot be negative, so if the startDay is after the opening day, we declare the site as open from the 1st day of model run (day 1)
   openDOY <- siteTab_sort[,2]
   openMod <- (openDOY - listParms$startDOY)
   
-  # Gain per day is 0 before opening day, and GainPerHour * daylength every day after opening
+  # Gain per day is dee_inX * 1.1 before opening day, and GainPerHour * daylength every day after opening
+  # !!! Martina changed gain.y to be DMEmax_inX * (h / (h + K)), see below
   gain.x <- seq(1:modelRun)
   gain.p  <- rep(stoch, modelRun) # stoch is the same all across
-  gain.y <- matrix(0, nrow = nrow(daylength), ncol = modelRun) #we could use 0 or a minimum dee_inX * 1.1
+  gain.y <- matrix(dee_inX * 1.1, nrow = nrow(daylength), ncol = modelRun) #we could use 0 or a minimum dee_inX * 1.1
+  K <- round(mean(daylength)) #12 hours
   for (i in 1:nrow(gain.y)) {
     # if the site opens before or on the day of model START, take gain and daylight from model start day
     if (openMod[i] <= 0) {
-      gain.y[i, ] <- GainPerHour * daylength[i, (listParms$startDOY:listParms$endDOY)]
+      h <- daylength[i, (listParms$startDOY:listParms$endDOY)]
+      #gain.y[i, ] <- DMEmax_inX * (h / (h + K)) # Michaelis–Menten / hyperbolic saturation. where K is the hour of the day at which we expect gain to reach half maximum (here mean of the daylength across all sites)
+      gain.y[i, ] <- DMEmax_inX * (h / max(daylength)) #linear increase of gain with daylength
+      #gain.y[i, ] <- DMEmax_inX * sqrt(h/24)       #use sqrt for simple concave transformation to reduce the effect of daylength, so that gain is between 0 and DMEmax, increasing quickly at low h but slower at high h
       # if site opens before the END of model run, calculate new gain from respective opening day (in mod day and doy)
     } else if (openMod[i] < modelRun) {
-      gain.y[i, (openMod[i]:modelRun)] <- GainPerHour * daylength[i, (openDOY[i]:(listParms$endDOY + 1))]
+      h <- daylength[i, (openDOY[i]:(listParms$endDOY + 1))]
+      #gain.y[i, (openMod[i]:modelRun)] <- DMEmax_inX * (h / (h + K)) 
+      gain.y[i, (openMod[i]:modelRun)] <- DMEmax_inX * (h / max(daylength)) 
+      #gain.y[i, (openMod[i]:modelRun)] <- DMEmax_inX * sqrt(h/24)
     }
   }
   # Fix gain of wintering site always to maximum, assuming the bird knows the wintering ground and can always find resources
   gain.y[which(hexIDs_sort==wintSite),] <- DMEmax_inX
+  # range(gain.y)
   # plot gain at the beginning middle and end of model run
   # ggplot(siteTab_sort, aes(x = x, y = y, fill = gain.y[,1])) + geom_point(shape=21, size=3) + coord_equal()
   # ggplot(siteTab_sort, aes(x = x, y = y, fill = gain.y[,70])) + geom_point(shape=21, size=3) + coord_equal()
@@ -161,17 +170,23 @@ makeSiteTab <- function(siteTab,
   
   #___ Terminal Reward__________
   # Calculate terminal reward for breeding sites (nrow = N sites, ncol defining the "curve shape" of the terminal reward):
-  # x = DOY at which each site opens, y = reward. Breeding site is the last in the vector!
-  # xFTReward <- c(1, 
-  #                openDOY[length(openDOY)]-1, openDOY[length(openDOY)], #openMod?
-  #                openDOY[length(openDOY)] + listParms$arrWindow, openDOY[length(openDOY)] + listParms$arrWindow + 1, 
-  #                length(gain.x))
   # x = Model day at which each site opens, y = reward. Breeding site is the last in the vector!
   xFTReward <- c(1, 
                  openMod[length(openMod)]-1, openMod[length(openMod)],
                  openMod[length(openMod)] + listParms$arrWindow, openMod[length(openMod)] + listParms$arrWindow + 1, 
                  length(gain.x))
   yFTReward <- c(0, 0, MaxReward, MaxReward, 0, 0)
+  # plot(xFTReward, yFTReward, type="l")
+ 
+  # ___ Predation Rates______
+  b0 <- rep(b0, listParms$NSites) # Background predation risk (e.g. number of predators in the area)
+  b1 <- rep(b1, listParms$NSites) # Body reserve dependent risk (e.g. the fatter the less mobile to escape)
+  b2 <- rep(b2, listParms$NSites) # Foraging intensity dependent risk (e.g. the more they feed the less they see predators)
+  # !!! Tested but excluded because did not make a big difference, reduced predation at wintering ground:
+  # For wintering site (first value), set predation to three orders of magnitude less
+  # b0[1] <- b0[1] * 0.001
+  # b1[1] <- b1[1] * 0.001
+  # b2[1] <- b2[1] * 0.001
   
   #___ Distances between all sites__________
   # Matrix of distances between all sites, coords are assumed to be in decimal degrees
@@ -186,6 +201,9 @@ makeSiteTab <- function(siteTab,
   
   # 2. Max distance Dmax that can be covered with max fat storage (Xmax) and flight range parameter c
   Dmax_km <- ((maxEnergy_kJ * 1000) / cot)/1000 # 4014.469 km (against 4328 km in silke's paper and 2500 km in Ulysses' thesis)
+  # !!! Test to make less distance possible
+  Dmax_km <- Dmax_km * 0.8
+  
   xf      <- listParms$MaxX # fraction xf of the maximum fuel load xmax dedicated to flight, change based on f
   c       <- Dmax_km/(1 - (1 + xf/listParms$MaxX)^(-0.5)) # flight range parameter 13706.25 (against 14776 in Silke's paper and 8535 in Ulysses' thesis)
   
@@ -221,17 +239,17 @@ makeSiteTab <- function(siteTab,
     ),
     Sites = list(
       SitesID = hexIDs_sort,
-      breedSites = which(hexIDs==breedSite),
-      wintSites  = which(hexIDs==wintSite),
+      breedSites = breedSite,
+      wintSites  = wintSite,
       crds = siteTab_sort[,3:4],
       dist = distMat,
       
       pred_a1 = pred_a1,
       pred_a2 = pred_a2,
       
-      b0 = rep(b0, listParms$NSites),
-      b1 = rep(b1, listParms$NSites),
-      b2 = rep(b2, listParms$NSites),
+      b0 = b0,
+      b1 = b1,
+      b2 = b2,
       
       expend  =  deeMat,
       gain    =  list(gain.x = gain.x, 

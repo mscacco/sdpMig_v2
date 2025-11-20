@@ -36,21 +36,18 @@ CalcTR         <- function(x, t) {
   TR * SR + parms$B0
 }
 
-#############################
-### Create Parameters Tab ###
-#############################
-
 
 makeSiteTab <- function(siteEnv,
-                        wintSite, 
-                        breedSite,
+                        year,
+                        wintSites, 
+                        breedSites,
                         listParms,
-                        BMR_file = "inputData/BMRcalculation_perOrder_McNab2008.csv",
+                        BMR_file = "simeon/inputData/BMRcalculation_perOrder_McNab2008.csv",
                         pred_a1  = 2, pred_a2  = 2,
                         b0 = 1e-04, b1 = 0.001, b2 = 1e-04,
                         stoch = 1
 ){
-  require(geosphere)
+  
   require(terra)
   require(sf)
   require(tidyverse)
@@ -62,12 +59,9 @@ makeSiteTab <- function(siteEnv,
   f         <- 1.0    ## proportion of x that cannot be devoted to flying ??? ask Silke, for now left as is
   MaxReward <- 2      ## value within arrival window, for terminal reward calculation 
   
-  #___Sorting sites (breeding site last, wintering site first)___
-  hexIDs    <- unique(siteEnv$hex_id)
-  hex_idx <- 1:length(hexIDs) 
-  hex_idx_new   <- c(which(hexIDs==wintSite), hex_idx[hex_idx!=which(hexIDs==wintSite) & hex_idx!=which(hexIDs==breedSite)], which(hexIDs==breedSite))
-  hexIDs_sort <- hexIDs[hex_idx_new]
-
+  
+  #___ gain ________
+  
   #___ Basal Metabolic Rate__________ 
   {
     # Calculate Basal Metabolic Rate based on body mass (1 Watt = 1 Joule/second = 3.6 kJ/hour)
@@ -106,12 +100,11 @@ makeSiteTab <- function(siteEnv,
     # Alternatively we could use 1.5 * BMR as approximation of DEE
   }
   
-  dee_inX <- (BMR_kJday * 1.5) / energyPerX # equivalent to only 3.28, repeated for all sites and all days
-  deeMat <- matrix(dee_inX, nrow = length(hexIDs_sort), ncol = length(listParms$startDOY:listParms$endDOY))
+  dee_inX <- (BMR_kJday * 1.5) / energyPerX # equivalent to only 3.28  
+  
   
   #___ Gain / maximum Daily Metabolised Energy Intake (DMEmax)__________
-  
-  # Calculate the maximum Daily Metabolised Energy Intake (DMEmax) according to Kirkwood 1983 “A limit to metabolisable energy intake in mammals and birds”
+  # We calculate the maximum Daily Metabolised Energy Intake (DMEmax) according to Kirkwood 1983 “A limit to metabolisable energy intake in mammals and birds”
   DMEmax <- 1713 * ((listParms$minBodyMass_g/1000) ^ 0.72) 
   DMEmax_inX <- DMEmax / energyPerX # gain = DME in units of body condition X, equal to 7.9
   
@@ -119,30 +112,31 @@ makeSiteTab <- function(siteEnv,
   siteEnv$daylength <- round(geosphere::daylength(siteEnv$y, siteEnv$yday),1)
   GainPerHour <- DMEmax_inX/max(siteEnv$daylength) #divide max intake by the maximum number of foraging hours to adjust gain by daylength
   
-  # Gain per day is 0 before opening day, and GainPerHour * daylength every day after opening
-#  gain.x  <- seq(1:(length(listParms$startDOY:listParms$endDOY))) # model days
-  gain.x <- seq(1:(listParms$endDOY-listParms$startDOY)) # model days
-  gain.p  <- rep(stoch, length(gain.x)) # stoch is the same all across
-  gain.y  <- lapply(hexIDs_sort, # already sorted in the right order
-                    function(hex) {
-                      sub <- siteEnv[siteEnv$hex_id==hex,]
+  gain.x  <- seq(1:(length(listParms$startDay:listParms$MaxRun)))
+  gain.p  <- rep(stoch, length(gain.x))
+  
+  gain.y  <- lapply(unique(siteEnv$hex_id),
+                    function(hexID){
+                      sub <- siteEnv[siteEnv$hex_id==hexID,]
                       openDOY <- sub$openingDay_0[1]
                       out <- rep(dee_inX * 1.1, length(gain.x)) # Set a baseline minimum gain everywhere
-                      openMod <- max(c(1, openDOY-listParms$startDOY))
-                      if(openMod<length(out)) {
-                        #constant intake after opening
-                        #out[openMod:length(out)] <- DMEmax_inX 
-                        # intake depending on daylength
-                        dayhours <- sub$daylength[(openDOY):(listParms$endDOY)] #extract daylength from env data as doy
+                      openMod <- (openDOY-listParms$startDay)
+                      if (openMod <= 0) {
+                        # if the site opens before or on the day of model START, take gain and daylight from model start day
+                        dayhours <- sub$daylength[(listParms$startDay):(listParms$MaxRun)]
+                        out <- GainPerHour * dayhours
+                        # if site opens before the END of model run, calculate new gain from respective opening day (in mod day and doy)
+                      }else if(openMod<length(out)) {
+                        # out[open:length(out)] <- DMEmax_inX
+                        # add intake depending on daylength
+                        dayhours <- sub$daylength[(openDOY):((listParms$MaxRun)+1)] #extract daylength from env data as doy
                         out[openMod:length(out)] <- GainPerHour * dayhours # assign gain*dayhours to the corresponding days expressed as model days in gain.y
+                        
                         out
                       } else out
                     }) %>% do.call("cbind", .) %>% t() %>% as.matrix()
-
-   #max(gain.y)==DMEmax_inX
-  # Adjust DEE of wintering site to maximum
-  gain.y[which(hexIDs==wintSite),] <- ifelse(gain.y[which(hexIDs==wintSite),]<DMEmax_inX, DMEmax_inX, gain.y[which(hexIDs==wintSite),])
   
+  deeMat <- matrix(dee_inX, nrow = nrow(gain.y), ncol = ncol(gain.y))
   
   # Accuracy (foraging success, sampled from a normal distribution)
   ZStdNorm = c(-2.5, -2.0, -1.5, -1.0, -0.5,  0.0,  0.5,  1.0,  1.5,  2.0,  2.5)
@@ -152,16 +146,31 @@ makeSiteTab <- function(siteEnv,
   #___ Terminal Reward__________
   # Calculate terminal reward for breeding sites (nrow = N sites, ncol defining the "curve shape" of the terminal reward):
   # x = DOY at which each site opens
-  xFTReward <- c(1, 
-                 siteEnv$openingDay_0[breedSite]-1, siteEnv$openingDay_0[breedSite], 
-                 siteEnv$openingDay_0[breedSite] + listParms$arrWindow, siteEnv$openingDay_0[breedSite] + listParms$arrWindow + 1, 
+  xFTReward <- c(1, #wrong indexing
+                 siteEnv$openingDay_0[breedSites]-1, siteEnv$openingDay_0[breedSites],
+                 siteEnv$openingDay_0[breedSites] + listParms$arrWindow, siteEnv$openingDay_0[breedSites] + listParms$arrWindow + 1,
                  length(gain.x))
+  # xFTReward <- c(1, #correct indexing in DOY
+  #                unique(siteEnv$openingDay_0[siteEnv$hex_id==breedSites])-1, 
+  #                unique(siteEnv$openingDay_0[siteEnv$hex_id==breedSites]), 
+  #                unique(siteEnv$openingDay_0[siteEnv$hex_id==breedSites]) + listParms$arrWindow, 
+  #                unique(siteEnv$openingDay_0[siteEnv$hex_id==breedSites]) + listParms$arrWindow + 1, 
+  #                length(gain.x))
+  #correct indexing in model days
+  # openBreed <- unique(siteEnv$openingDay_0[siteEnv$hex_id==breedSites]) - listParms$startDay
+  # xFTReward <- c(1, 
+  #                openBreed-1, 
+  #                openBreed, 
+  #                openBreed + listParms$arrWindow, 
+  #                openBreed + listParms$arrWindow + 1, 
+  #                length(gain.x))
   yFTReward <- c(0, 0, MaxReward, MaxReward, 0, 0)
   
   #___ Distances between all sites__________
   # Matrix of distances between all sites, coords are assumed to be in decimal degrees
   distMat <- as.matrix(terra::distance(x = siteEnv[!duplicated(siteEnv$hex_id),c("x", "y")] %>% st_drop_geometry() %>% as.data.frame(), 
                                        lonlat = TRUE, method = "geo", unit="km"))
+  
   
   # siteEnv[!duplicated(siteEnv$hex_id),] %>% mutate(dist = distMat[100,]) %>% ggplot() + geom_sf(mapping = aes(fill = dist))
   
@@ -178,13 +187,24 @@ makeSiteTab <- function(siteEnv,
   # 3. Flight speed is provided by the user in m/s and here converted in km covered per day
   speed_kmDay <- listParms$speed_ms * 86.4 # We obtain 1088.64 km/day compared to 1440 km/day in Silke's paper but they used airspeed. I think we should use ground speed.
   
+  
+  
+  ### Sorting (breeding site last, wintering site first)
+  hexIDs    <- siteEnv[!duplicated(siteEnv$hex_id),] %>% st_drop_geometry() %>% pull(hex_id)
+  hex_ind_0 <- 1:nrow(siteEnv[!duplicated(siteEnv$hex_id),]) 
+  hex_ind   <- c(which(hexIDs==wintSites), hex_ind_0[hex_ind_0!=which(hexIDs==wintSites) & hex_ind_0!=which(hexIDs==breedSites)], which(hexIDs==breedSites))
+  
+  ## Adjusting DEE of wintering site
+  gain.y[which(hexIDs==wintSites),] <- ifelse(gain.y[which(hexIDs==wintSites),]<DMEmax_inX, DMEmax_inX, gain.y[which(hexIDs==wintSites),])
+  
+  
   # Fill and return a SDPMig object for the next steps
   new(
     "SDPMig", 
     Name = listParms$projectName,
     Init = list(
-      MinT   = listParms$startDOY,
-      MaxT   = listParms$endDOY,
+      MinT   = listParms$startDay,
+      MaxT   = listParms$MaxRun,
       NSites = listParms$NSites,
       MaxX   = listParms$MaxX
     ),
@@ -206,11 +226,11 @@ makeSiteTab <- function(siteEnv,
       yFTReward  = yFTReward
     ),
     Sites = list(
-      SitesID = hexIDs[hex_idx_new],
-      breedSites = which(hexIDs==breedSite),
-      wintSites  = which(hexIDs==wintSite),
-      crds = siteEnv[!duplicated(siteEnv$hex_id),] %>% st_drop_geometry() %>% dplyr::select("x", "y") %>% slice(hex_idx_new),
-      dist = distMat[hex_idx_new, hex_idx_new],
+      SitesID = hexIDs[hex_ind],
+      breedSites = which(hexIDs==breedSites),
+      wintSites  = which(hexIDs==wintSites),
+      crds = siteEnv[!duplicated(siteEnv$hex_id),] %>% st_drop_geometry() %>% dplyr::select("x", "y") %>% slice(hex_ind),
+      dist = distMat[hex_ind, hex_ind],
       
       pred_a1 = pred_a1,
       pred_a2 = pred_a2,
@@ -219,9 +239,9 @@ makeSiteTab <- function(siteEnv,
       b1 = rep(b1, listParms$NSites),
       b2 = rep(b2, listParms$NSites),
       
-      expend  =  deeMat, # also resorted?
+      expend  =  deeMat,
       gain    =  list(gain.x = gain.x, 
-                      gain.y = gain.y[hex_idx_new,], 
+                      gain.y = gain.y[hex_ind,], 
                       gain.p = gain.p)
     ),
     Results = list(
@@ -264,10 +284,10 @@ bwdIteration <- function(obj, pbar = FALSE) {
        obj@Sites$gain$gain.y, # arma::mat
        obj@Sites$gain$gain.p, # arma::vec
        as.matrix(obj@Sites$expend) # arma::mat
-       ) 
+  ) 
   
   out <- BackwardIteration(pbar = pbar)
-
+  
   obj@Results$FitnessMatrix <- out[[1]]
   DM <- array(dim = c(dim(out[[2]]),2))
   DM[,,,1] <- out[[2]]
@@ -339,7 +359,7 @@ fwdSimulation <- function(model, NrInd, start_t, start_site, start_x) {
       if(!SimOut[ind, 6, time] & 
          sum(SimOut[ind, 2, ] >= nrow(model@Sites$crds), na.rm = T)<1 & !SimOut[ind, 5, time]) {
         
-        ## Decision (when negative feeding, when positive it's the site to fly)
+        ## Decision
         if(runif(1) <  model@Results$ProbMatrix[SimOut[ind, 2, time], time, SimOut[ind, 3, time], 1]) {
           decision  <- model@Results$DecisionMatrix[SimOut[ind, 2, time], time, SimOut[ind, 3, time], 1]
         } else {
@@ -397,33 +417,6 @@ fwdSimulation <- function(model, NrInd, start_t, start_site, start_x) {
   SimOut
 }
 
-#############################
-#### Plotting functions #####
-#############################
-
-### Plot body condition over time
-condProfile <- function(simu, model) {
-  trkS  <- simu[,2,]+1
-  trkX  <- simu[,3,]
-  trkD  <- simu[,5,]
-  
-  cls <- rainbow(max(trkS, na.rm = T))[sample(1:max(trkS, na.rm = T))]
-  
-  opar <- par(mfrow = c(1,1))
-  matplot(model@Init$MinT:model@Init$MaxT, t(trkX), type = "n", 
-          xaxt = "n", xlab  = "", ylab = "Body condition", las = 1)
-  for(i in 1:dim(simu)[1]) {
-    if(all(trkD[i,]==0)){
-      tmp <- cbind(model@Init$MinT:model@Init$MaxT, trkS[i,], trkX[i,])[!is.na(trkS[i,]),]
-      points(tmp[,1], tmp[,3], type = "l", col = "grey90")
-      points(tmp[,1], tmp[,3], pch = 16, cex = 0.5, col = cls[tmp[,2]])
-    }
-  }
-  axis(1, at = seq(model@Init$MinT,model@Init$MaxT, by = 15), labels = format(as.POSIXct("2012-01-01")+seq(model@Init$MinT,model@Init$MaxT, by = 15)*24*60*60, "%b-%d"))
-  par(opar)
-}
-
-### Plot migratory routes as network
 pltNetwork <- function(simu, model, map = europe_laea) {
   
   sitesCrds <- model@Sites$crds
@@ -555,4 +548,25 @@ pltNetwork <- function(simu, model, map = europe_laea) {
 #   list(trans, relSite, migrPhen, fueling, fitness)
 #   
 # } 
+
+condProfile <- function(simu, model) {
+  trkS  <- simu[,2,]+1
+  trkX  <- simu[,3,]
+  trkD  <- simu[,5,]
+  
+  cls <- rainbow(max(trkS, na.rm = T))[sample(1:max(trkS, na.rm = T))]
+  
+  opar <- par(mfrow = c(1,1))
+  matplot(model@Init$MinT:model@Init$MaxT, t(trkX), type = "n", 
+          xaxt = "n", xlab  = "", ylab = "Body condition", las = 1)
+  for(i in 1:dim(simu)[1]) {
+    if(all(trkD[i,]==0)){
+      tmp <- cbind(model@Init$MinT:model@Init$MaxT, trkS[i,], trkX[i,])[!is.na(trkS[i,]),]
+      points(tmp[,1], tmp[,3], type = "l", col = "grey90")
+      points(tmp[,1], tmp[,3], pch = 16, cex = 0.5, col = cls[tmp[,2]])
+    }
+  }
+  axis(1, at = seq(model@Init$MinT,model@Init$MaxT, by = 15), labels = format(as.POSIXct("2012-01-01")+seq(model@Init$MinT,model@Init$MaxT, by = 15)*24*60*60, "%b-%d"))
+  par(opar)
+}
 

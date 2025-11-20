@@ -3,8 +3,10 @@ library(sf)
 sf_use_s2(FALSE)
 library(Rcpp)
 library(RcppArmadillo)
-Rcpp::sourceCpp("simeon/functions/src/SdpMigC.cpp")
-source("./simeon/functions/R/fnc_simeon.R")
+Rcpp::sourceCpp("simeon/functions/src/SdpMigC.cpp") #silke's version
+#Rcpp::sourceCpp("simeon/functions/src/SdpMigC_old.cpp") #simeon's version
+#source("./simeon/functions/R/fnc_simeon.R")
+source("./simeon/functions/R/fnc_simeon_daylight.R")
 
 ### Grid
 hex <- st_read("simeon/inputData/hexagonalGrid_100km_laea_EuropeNoWater.gpkg")
@@ -82,5 +84,8 @@ bckw <- bwdIteration(sdp_sites, FALSE)
 
 fwd <- fwdSimulation(bckw, NrInd = 100, start_t = 1, start_site = 1, start_x = c(10, 20))
 
-condProfile(simu = fwd, model = sdp_sites)
+outFld <- "/home/mscacco/ownCloud - mscacco@ab.mpg.de@owncloud.gwdg.de/Martina/ProgettiVari/WSL/KappaFlu/Outputs/Simulations/"
+save(bckw,fwd, file=paste0(outFld,"bwd_fwd_w1130_b2644_simeonsOrig_silkecpp_daylight.rdata"))
+
+condProfile(simu = fwd, model = sdp_sites) #fwd[50:51,,]
 pltNetwork(simu = fwd, model = sdp_sites, map = europe_laea)
