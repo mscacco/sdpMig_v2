@@ -195,7 +195,7 @@ double Predation (
     const int& site, 
     const int& x,
     double u,
-    double f
+    double forage
 )
 {
   const double rew_tol = 0.0000005;
@@ -203,7 +203,8 @@ double Predation (
   
   cor_u = u;
   cor_x = (double)(x);
-  netgain = ((u * f) - sdp::expend(site, time));
+  netgain = ((u * forage) - sdp::expend(site, time));
+
   if (netgain <= 0.0) netgain = rew_tol;
   if (cor_u   <= 0.0) cor_u   = rew_tol;
   if (cor_x   <= 0.0) cor_x   = rew_tol;
