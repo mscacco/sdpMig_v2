@@ -733,7 +733,7 @@ arma::vec simFlying(int decision, int time, int site, int x)
   int hit = 0;
   int NWind = sdp::WindAssist.size();
   arma::vec out = arma::zeros<arma::vec>(2);
-  f = 1.0;
+  f = sdp::f;
   
   int dest_site = decision;
   total_D = 0.0;
