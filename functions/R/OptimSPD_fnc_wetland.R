@@ -138,19 +138,19 @@ makeSiteTab <- function(siteTab,
   openDOY <- siteTab_sort[,2]
   openMod <- (openDOY - listParms$startDOY)
   
-  # Gain per day is dee_inX * 1.1 before opening day, and GainPerHour * daylength every day after opening
+  ### Gain per day is dee_inX * 1.1 before opening day
   # !!! Martina changed gain.y function
   gain.x <- seq(1:modelRun)
   gain.p  <- rep(stoch, modelRun) # stoch is the same all across
   gain.y <- matrix(0, nrow = nrow(siteTab_sort), ncol = modelRun) #we could use 0 or a minimum dee_inX * 1.1
-  ### Gain is max after opening day, one value per hex
+  ### option 1: Gain is max after opening day, one value per hex
   # for (i in 1:nrow(gain.y)) { # calculate gain per hexagon
   #   if (openMod[i] <= 0) {
   #     gain.y[i, ] <- DMEmax_inX
   #   }else if (openMod[i] < modelRun) {
   #     gain.y[i, (openMod[i]:modelRun)] <- DMEmax_inX
   #   }}
-  ### Gain depends on suitability (wetland prop) after opening day (suitability is static, so one value per heagon)
+  ### option 2: Gain depends on suitability (wetland prop) after opening day (suitability is static, so one value per hexagon)
   for (i in 1:nrow(gain.y)) { # calculate gain per hexagon
     gainVal <- mm_fun(Ymax=DMEmax_inX, x=siteTab_sort[i,5], K=findK(x0=0.6, yf=0.95)) # at suit 0.6 gain is 0.95% of max 
     if (openMod[i] <= 0) {
@@ -158,7 +158,7 @@ makeSiteTab <- function(siteTab,
       }else if (openMod[i] < modelRun) {
         gain.y[i, (openMod[i]:modelRun)] <- gainVal
       }}
-  ### Gain dependent on daylength after opening day (gain per hexagon changing daily after opening)
+  ### option 3: Gain dependent on daylength after opening day (gain per hexagon changing daily after opening)
   # Calculate daylength to derive energy intake per hour of light and adjust gain.y relative to number of foraging hours
   # daylength <- t(apply(siteTab_sort, 1, function(x) {
   #   round(geosphere::daylength(as.numeric(x["y"]), 1:366), 1)

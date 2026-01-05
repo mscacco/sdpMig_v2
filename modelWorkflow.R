@@ -20,6 +20,7 @@ ggplot() + geom_sf(data = europe_laea) + geom_sf(data = hex, fill = NA)
 
 #__________________
 ### Environment ###
+
 siteEnv  <- readRDS("./inputData/EnvTab_forModel.rds") %>% st_as_sf()
 
 ggplot() + ggtitle("Opening Day") + geom_sf(data = hex, aes(fill=NULL)) +
@@ -52,7 +53,6 @@ siteTab <- siteEnv %>% filter(!duplicated(hex_id)) %>%
 #_________________________________
 ### Exclude low wetland cover ###
 
-
 # Hex with wetland >= 50% but still including wintering and breeding grounds
 siteTab_wet <- filter(siteTab, suitability>=0.05 | hex_id %in% c(allWintSites,allBreedSites))
 
@@ -66,7 +66,8 @@ p2 <- ggplot() + ggtitle("Wetlands coverage > 5%") +
   geom_sf(data = filter(st_as_sf(siteTab_wet)), 
           aes(fill = suitability)) +
   scale_fill_viridis_c(name = "% Wetland", na.value = "transparent") + theme_minimal()
-cowplot::plot_grid(p1,p2,ncol=2)
+
+x11();cowplot::plot_grid(p1,p2,ncol=2)
 
 #________________
 ### Body mass ###
@@ -113,7 +114,7 @@ parms <- list(
 #_____________
 ### Model ###
 
-outFld <- "/home/mscacco/ownCloud - mscacco@ab.mpg.de@owncloud.gwdg.de/Martina/ProgettiVari/WSL/KappaFlu/Outputs/Simulations/"
+outFld <- "/home/martina/ownCloud/Martina/ProgettiVari/WSL/KappaFlu/Outputs/Simulations/"
 
 # (one model run per combination of wintering-breeding sites)
 i=1
