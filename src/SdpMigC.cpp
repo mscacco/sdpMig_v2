@@ -1,6 +1,7 @@
 // [[Rcpp::depends(RcppArmadillo)]]
 // [[Rcpp::depends(RcppProgress)]]
-#include "RcppArmadillo.h"
+#include <Rcpp.h>
+#include <RcppArmadillo.h>
 #include <iostream>
 
 // Namespace for Parameters
@@ -195,7 +196,7 @@ double Predation (
     const int& site, 
     const int& x,
     double u,
-    double f
+    double forage
 )
 {
   const double rew_tol = 0.0000005;
@@ -203,7 +204,8 @@ double Predation (
   
   cor_u = u;
   cor_x = (double)(x);
-  netgain = ((u * f) - sdp::expend(site, time));
+  netgain = ((u * forage) - sdp::expend(site, time));
+
   if (netgain <= 0.0) netgain = rew_tol;
   if (cor_u   <= 0.0) cor_u   = rew_tol;
   if (cor_x   <= 0.0) cor_x   = rew_tol;
@@ -369,9 +371,11 @@ double Flying(
   interpolReward = 0.0;
   totalD = 0.0;
   Whold = 0.0;
-  f = 1.0;
+  f = sdp::f; //1.0;
   
-  range = sdp::c * (1.0 - (1.0/ (sqrt(1.0 + ( ((double)(x) - (1 - f) * x)/(double)(sdp::MaxX)) )))); //determine Range
+  double usableF = f * x / sdp::MaxX;
+  range = sdp::c * (1.0 - 1.0 / sqrt(1.0 + usableF));
+  //range = sdp::c * (1.0 - (1.0/ (sqrt(1.0 + ( ((double)(x) - (1 - f) * x)/(double)(sdp::MaxX)) )))); //determine Range
   
   totalD = sdp::dist(site, dep_site); // distance between starting site and destination
   for (int h = 0; h < sdp::WindProb.size(); ++h) // wind support
@@ -433,6 +437,7 @@ void Init( int MaxT,
            double pred_a2,
            double c,
            double speed,
+           double f,
            Rcpp::NumericVector WindAssist,
            Rcpp::NumericVector WindProb,
            Rcpp::NumericVector ZStdNorm,
@@ -463,6 +468,7 @@ void Init( int MaxT,
   sdp::pred_a2 = pred_a2;
   sdp::c = c;
   sdp::speed = speed;
+  sdp::f = f;
   sdp::WindAssist = WindAssist;
   sdp::WindProb = WindProb;
   sdp::ZStdNorm = ZStdNorm;
@@ -616,6 +622,7 @@ void InitSim (int MaxT,
               double pred_a2,
               double c,
               double speed,
+              double f,
               Rcpp::NumericVector WindAssist,
               Rcpp::NumericVector WindProb,
               Rcpp::NumericVector ZStdNorm,
@@ -645,6 +652,7 @@ void InitSim (int MaxT,
   sdp::pred_a2 = pred_a2;
   sdp::c = c;
   sdp::speed = speed;
+  sdp::f = f;
   sdp::WindAssist = WindAssist;
   sdp::WindProb = WindProb;
   sdp::ZStdNorm = ZStdNorm;
@@ -733,7 +741,7 @@ arma::vec simFlying(int decision, int time, int site, int x)
   int hit = 0;
   int NWind = sdp::WindAssist.size();
   arma::vec out = arma::zeros<arma::vec>(2);
-  f = 1.0;
+  f = sdp::f;
   
   int dest_site = decision;
   total_D = 0.0;

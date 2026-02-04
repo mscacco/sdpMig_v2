@@ -62,7 +62,7 @@ makeSiteTab <- function(siteTab,
                         wintSite, 
                         breedSite,
                         listParms,
-                        BMR_file = "inputData/BMRcalculation_perOrder_McNab2008.csv",
+                        BMR_file = "./inst/data/BMRcalculation_perOrder_McNab2008.csv",
                         pred_a1  = 2, pred_a2  = 2,
                         b0 = 1e-04, b1 = 0.001, b2 = 1e-04,
                         stoch = 1
@@ -138,44 +138,19 @@ makeSiteTab <- function(siteTab,
   openDOY <- siteTab_sort[,2]
   openMod <- (openDOY - listParms$startDOY)
   
-  ### Gain per day is dee_inX * 1.1 before opening day
-  # !!! Martina changed gain.y function
+  ### Gain per day is 0 before opening day, then it is modulated by suitability between 0 and DMEmax_inX
   gain.x <- seq(1:modelRun)
   gain.p  <- rep(stoch, modelRun) # stoch is the same all across
   gain.y <- matrix(0, nrow = nrow(siteTab_sort), ncol = modelRun) #we could use 0 or a minimum dee_inX * 1.1
-  ### option 1: Gain is max after opening day, one value per hex
-  # for (i in 1:nrow(gain.y)) { # calculate gain per hexagon
-  #   if (openMod[i] <= 0) {
-  #     gain.y[i, ] <- DMEmax_inX
-  #   }else if (openMod[i] < modelRun) {
-  #     gain.y[i, (openMod[i]:modelRun)] <- DMEmax_inX
-  #   }}
-  ### option 2: Gain depends on suitability (wetland prop) after opening day (suitability is static, so one value per hexagon)
+  # Gain depends on suitability after opening day (suitability is static, so one value per hexagon)
   for (i in 1:nrow(gain.y)) { # calculate gain per hexagon
-    gainVal <- mm_fun(Ymax=DMEmax_inX, x=siteTab_sort[i,5], K=findK(x0=0.6, yf=0.95)) # at suit 0.6 gain is 0.95% of max 
+    gainVal <- mm_fun(Ymax=DMEmax_inX, x=siteTab_sort[i,5], K=findK(x0=0.6, yf=0.95)) # at suit 0.6 gain is 0.95% of max
     if (openMod[i] <= 0) {
         gain.y[i, ] <- gainVal
       }else if (openMod[i] < modelRun) {
         gain.y[i, (openMod[i]:modelRun)] <- gainVal
       }}
-  ### option 3: Gain dependent on daylength after opening day (gain per hexagon changing daily after opening)
-  # Calculate daylength to derive energy intake per hour of light and adjust gain.y relative to number of foraging hours
-  # daylength <- t(apply(siteTab_sort, 1, function(x) {
-  #   round(geosphere::daylength(as.numeric(x["y"]), 1:366), 1)
-  # }))
-  #ggplot(siteTab_sort, aes(x = x, y = y, fill = daylength[,172])) + geom_point(shape=21, size=3) + coord_equal()
-  #for (i in 1:nrow(gain.y)) { # calculate gain per hexagon
-    #if (openMod[i] <= 0) {
-      #h <- daylength[i, (listParms$startDOY:listParms$endDOY)]
-      #gain.y[i, ] <- mm_fun(Ymax=DMEmax_inX, x=h, K=round(mean(daylength))) # Michaelis–Menten / hyperbolic saturation. where K is the hour of the day at which we expect gain to reach half maximum (here mean of the daylength across all sites)
-      #gain.y[i, ] <- DMEmax_inX * (h / max(daylength)) #linear increase of gain with daylength
-      # if site opens before the END of model run, calculate new gain from respective opening day (in mod day and doy)
-    #} else if (openMod[i] < modelRun) {
-      #h <- daylength[i, (openDOY[i]:(listParms$endDOY + 1))]
-      #gain.y[i, (openMod[i]:modelRun)] <- mm_fun(Ymax=DMEmax_inX, x=h, K=round(mean(daylength))) 
-      #gain.y[i, (openMod[i]:modelRun)] <- DMEmax_inX * (h / max(daylength)) 
-    #}}
-  
+
   # Fix gain of wintering site always to maximum, assuming the bird knows the wintering ground and can always find resources
   gain.y[which(hexIDs_sort==wintSite),] <- DMEmax_inX
   # range(gain.y)
@@ -202,12 +177,7 @@ makeSiteTab <- function(siteTab,
   b0 <- rep(b0, listParms$NSites) # Background predation risk (e.g. number of predators in the area)
   b1 <- rep(b1, listParms$NSites) # Body reserve dependent risk (e.g. the fatter the less mobile to escape)
   b2 <- rep(b2, listParms$NSites) # Foraging intensity dependent risk (e.g. the more they feed the less they see predators)
-  # !!! Tested but excluded because did not make a big difference, reduced predation at wintering ground:
-  # For wintering site (first value), set predation to three orders of magnitude less
-  # b0[1] <- b0[1] * 0.001
-  # b1[1] <- b1[1] * 0.001
-  # b2[1] <- b2[1] * 0.001
-  
+
   #___ Distances between all sites__________
   # Matrix of distances between all sites, coords are assumed to be in decimal degrees
   distMat <- as.matrix(terra::distance(x = siteTab_sort[,3:4], lonlat = TRUE, method = "geo", unit="km"))
@@ -221,15 +191,15 @@ makeSiteTab <- function(siteTab,
   
   # 2. Max distance Dmax that can be covered with max fat storage (Xmax) and flight range parameter c
   Dmax_km <- ((maxEnergy_kJ * 1000) / cot)/1000 # 4014.469 km (against 4328 km in silke's paper and 2500 km in Ulysses' thesis)
-  # !!! Test to make less distance possible
-  #Dmax_km <- Dmax_km * 0.3
+
+  # 3. The c parameter is just a calibration step that ensures that range maximum = Dmax (range max happening when x = MaxX and f = 1)
+  # This allows to reduce distance between stopovers according to f: when f > 1, range will be < Dmax_km (range is defined in the bwdIteration in the cpp file)
+  c_new <- Dmax_km / (1 - (1 + 1)^(-0.5)) 
   
-  xf      <- listParms$f * listParms$MaxX # fraction xf of the maximum fuel load xmax dedicated to flight, change based on f
-  c       <- Dmax_km/(1 - (1 + xf/listParms$MaxX)^(-0.5)) # flight range parameter 13706.25 (against 14776 in Silke's paper and 8535 in Ulysses' thesis)
-  
-  # 3. Flight speed is provided by the user in m/s and here converted in km covered per day
-  speed_kmDay <- listParms$speed_ms * 86.4 # We obtain 1088.64 km/day compared to 1440 km/day in Silke's paper but they used airspeed. I think we should use ground speed.
-  
+  # 4. Flight speed (ground speed) provided by the user in m/s and here converted in km covered per day
+  speed_kmDay <- listParms$speed_ms * 86.4
+
+    
   # Fill and return a SDPMig object for the next steps
   new(
     "SDPMig", 
@@ -246,7 +216,7 @@ makeSiteTab <- function(siteTab,
       xc    = xc,
       max_u = max_u,
       f     = listParms$f,
-      c     = c,
+      c     = c_new,
       # Wind and flight speed can vary per site so might go into site parameters but for now we leave them here for consistency with previous models
       WindAssist = 0, #can be either one value or an array [nhex, nhex, ndays] 
       WindProb   = 1, #can be either one value or NULL
@@ -304,6 +274,7 @@ bwdIteration <- function(obj, pbar = FALSE) {
        obj@Sites$pred_a2, # double
        obj@Species$c, # double
        obj@Species$speed, # double
+       obj@Species$f, # double
        obj@Species$WindAssist, # arma::vec
        obj@Species$WindProb, # arma::vec
        obj@Species$ZStdNorm, # arma::vec
@@ -353,6 +324,7 @@ fwdSimulation <- function(model, NrInd, start_t, start_site, start_x) {
           model@Sites$pred_a2,
           model@Species$c,
           model@Species$speed,
+          model@Species$f,
           model@Species$WindAssist,
           model@Species$WindProb,
           model@Species$ZStdNorm,
