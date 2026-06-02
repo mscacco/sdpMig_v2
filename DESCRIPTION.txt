@@ -1,0 +1,36 @@
+Package: sdpMig_v2
+Type: Package
+Title: State-dependent Dynamic Programming Model for Optimal Migration
+Version: 0.1.0
+Authors@R: 
+    person("Martina", "Scacco",
+           email = "martina.scacco@gmail.com",
+           role = c("aut", "cre"))
+Description: 
+    Implements a State-dependent Dynamic Programming model for bird migration,
+    generalised to include .....,
+    with performance-critical components written in C++ via Rcpp.
+    
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+
+Imports:
+    sf,
+    dplyr,
+    tidyr,
+    ggplot2,
+    Rcpp
+
+LinkingTo:
+    Rcpp,
+    RcppArmadillo,
+    RcppProgress
+
+Suggests:
+    knitr,
+    rmarkdown
+
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+

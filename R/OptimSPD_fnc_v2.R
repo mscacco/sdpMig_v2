@@ -44,7 +44,17 @@ CalcTR         <- function(x, t) {
 mm_fun <- function(Ymax, x, K) Ymax * (x / (x + K))
 # K is based on the fraction yf of Y that we expect to reach at the x0 value of x
 # e.g. we expect to reach 0.95% of the maximum gain at suitability x0=0.5
-findK <- function(x0, yf) x0 * (1 - yf) / yf  
+findK <- function(x0, yf) x0 * (1 - yf) / yf 
+
+### Sampling individuals per hexagon based on probabilities introducing real stochasticity
+# probs is a vector of relative probabilities per hexagon/pixel (their sum should equal 1)
+# returns a vector of the same length as prob, with number of individuals
+find_nInds <- function(probs){
+  as.integer(table(
+  factor(sample(seq_len(length(probs)), size = 1000, replace = TRUE, prob = probs),
+         levels = seq_len(length(probs)))
+))}
+
 
 #############################
 ### Create Parameters Tab ###
@@ -146,11 +156,12 @@ makeSiteTab <- function(siteTab,
   for (i in 1:nrow(gain.y)) { # calculate gain per hexagon
     gainVal <- mm_fun(Ymax=DMEmax_inX, x=siteTab_sort[i,5], K=findK(x0=0.6, yf=0.95)) # at suit 0.6 gain is 0.95% of max
     if (openMod[i] <= 0) {
-        gain.y[i, ] <- gainVal
-      }else if (openMod[i] < modelRun) {
-        gain.y[i, (openMod[i]:modelRun)] <- gainVal
-      }}
-
+      gain.y[i, ] <- gainVal
+    }else if (openMod[i] < modelRun) {
+      gain.y[i, (openMod[i]:modelRun)] <- gainVal
+    }
+  }
+  
   # Fix gain of wintering site always to maximum, assuming the bird knows the wintering ground and can always find resources
   gain.y[which(hexIDs_sort==wintSite),] <- DMEmax_inX
   # range(gain.y)
@@ -473,9 +484,9 @@ pltNetwork <- function(simu, model, map = europe_laea) {
   lwd.f <- approxfun(c(0, max(trans[,3])), c(0.1, 5), rule = 3)
   
   opar <- par(mfrow = c(1,1))
-  plot(map %>% st_geometry(), col = "grey90", border = "grey50")
-  pr <- st_as_sf(model@Sites$crds %>% as_data_frame(), coords = c("x", "y")) %>% st_set_crs(4326) %>% st_transform(st_crs(map)) %>% st_coordinates()
-  segments(pr[trans[,1],1], pr[trans[,1],2], pr[trans[,2],1], pr[trans[,2],2], lwd = lwd.f(trans[,3]), col = "grey20")
+  plot(map %>% st_geometry(), col = "grey10", border = "grey50")
+  pr <- st_as_sf(model@Sites$crds %>% as.data.frame(), coords = c("x", "y")) %>% st_set_crs(4326) %>% st_transform(st_crs(map)) %>% st_coordinates()
+  segments(pr[trans[,1],1], pr[trans[,1],2], pr[trans[,2],1], pr[trans[,2],2], lwd = lwd.f(trans[,3]), col = "grey80")
   
   site01 <- cbind(sitesCrds, d = diag(tmp.out))
   cex.f <- approxfun(x = c(1, max(site01[-1,3])), y = c(0.1, 15), rule = 3)
@@ -488,12 +499,12 @@ pltNetwork <- function(simu, model, map = europe_laea) {
   
   pts <- st_as_sf(site01[,1:2] %>% as_data_frame(), coords = c("x", "y")) %>% st_set_crs(4326) %>% st_transform(st_crs(map)) %>% st_coordinates()
   
-  points(pts, cex = cex, pch = pch, col  = "grey10",
-         bg = c("white", rep(adjustcolor("orange", alpha.f = 0.55), nrow(site01)-1)), lwd = 1.4)
+  points(pts, cex = cex, pch = pch, col  = "white",
+         bg = c(adjustcolor("blue", alpha.f = 0.55), rep(adjustcolor("orange", alpha.f = 0.55), nrow(site01)-1)), lwd = 1.4)
   points(pr[1,1], pr[1,2], pch = 21, bg = adjustcolor("white", alpha.f = 0.3))
   par(opar)
   
-  cat(sum(dead<1)/length(dead))
+  #cat(sum(dead<1)/length(dead))
   
 }
 

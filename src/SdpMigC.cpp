@@ -1,6 +1,5 @@
 // [[Rcpp::depends(RcppArmadillo)]]
 // [[Rcpp::depends(RcppProgress)]]
-#include <Rcpp.h>
 #include <RcppArmadillo.h>
 #include <iostream>
 
