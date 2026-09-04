@@ -7,7 +7,6 @@ setClass(
             Results = "list")
 )
 
-
 Mat3Array      <- function(x) {
   
   rows = length(x)
@@ -60,15 +59,13 @@ find_nInds <- function(probs){
 ### Create Parameters Tab ###
 #############################
 
-# Major changes are marked with !!!
-
 # Inputs are: 
 # 1. a data.frame or matrix of 5 columns in this order: 1st col = sites ID (hexagons id), 2nd col = opening day as day of the year (Jan 1st being day 1), 3rd and 4th columns are coordinates (long and lat in decimal degrees), 5th column is a suitability layer between 0 and 1. Potential additional columns are ignored.
 # 2. two integers indicating the site ID (hexagon ID) of the wintering and breeding site. These should be among the IDs in the first column of data.
 # 3. the list of parameters from previous steps,
 # 4. optionally we can have matrices of environmental values (e.g. windTab) with dimensions nrow = Nsites and ncol = doy to make distance dependent on wind
 
-makeSiteTab <- function(siteTab,
+makeSDPMig <- function(siteTab,
                         wintSite, 
                         breedSite,
                         listParms,
@@ -132,9 +129,9 @@ makeSiteTab <- function(siteTab,
     
     # This must be converted in units of X (body condition). How many X does FMR corresponds to? 
     # We obtain it by dividing FMR for the energy equivalent of a unit of X:
-    # !!! dee_inX <- FMR_kjday / energyPerX # equivalent to 5.96 units of X
+    dee_inX <- FMR_kjday / energyPerX # equivalent to 5.96 units of X
     # Alternatively we could use 1.5 * BMR as approximation of DEE
-    dee_inX <- (BMR_kJday * 1.5) / energyPerX # equivalent to only 3.28, repeated for all sites and all days
+    #dee_inX <- (BMR_kJday * 1.5) / energyPerX # equivalent to only 3.28, repeated for all sites and all days
     deeMat <- matrix(dee_inX, nrow = nrow(siteTab_sort), ncol = modelRun)
   }
   
@@ -161,7 +158,8 @@ makeSiteTab <- function(siteTab,
       gain.y[i, (openMod[i]:modelRun)] <- gainVal
     }
   }
-  
+  # Reduce gain at each location based on the proportion of maximum daily intake realistically achievable (g)
+  gain.y <- gain.y/listParms$g 
   # Fix gain of wintering site always to maximum, assuming the bird knows the wintering ground and can always find resources
   gain.y[which(hexIDs_sort==wintSite),] <- DMEmax_inX
   # range(gain.y)
@@ -429,7 +427,7 @@ fwdSimulation <- function(model, NrInd, start_t, start_site, start_x) {
   SimOut       <- SimOut[,-5,] 
   SimOut[,2,] <- SimOut[,2,]-1
   
-  SimOut
+  return(SimOut)
 }
 
 #############################
@@ -458,55 +456,267 @@ condProfile <- function(simu, model) {
   par(opar)
 }
 
-### Plot migratory routes as network
-pltNetwork <- function(simu, model, map = europe_laea) {
+# ### Plot migratory routes as network
+# pltNetwork <- function(simu, model, map = europe_laea) {
+#   
+#   sitesCrds <- model@Sites$crds
+#   dead      <- apply(simu[,5,], 1, sum, na.rm = T)
+#   trkS      <- simu[dead<1,2,]+1
+#   
+#   diagT <-   apply(trkS, 1, function(x) {
+#     tt <- as.data.frame(table(x[!is.na(x)]))
+#     m  <- merge(data.frame(Var1 = 1:nrow(sitesCrds)), tt, all.x = T)
+#     m[nrow(m),2] <- NA
+#     ifelse(is.na(m[,2]), 0, m[,2])
+#   })
+#   tmp.out   <- matrix(0, ncol = nrow(sitesCrds), nrow = nrow(sitesCrds)) 
+#   diag(tmp.out) <- apply(diagT, 1, sum)
+#   
+#   transT <- as.data.frame(table(apply(do.call("rbind", apply(trkS, 1, function(x) {
+#     tmp01 <- cbind(x[!is.na(x)][-sum(!is.na(x))], x[!is.na(x)][-1])
+#     as.data.frame(tmp01[tmp01[,1]!=tmp01[,2] & !is.na(tmp01[,1]) & !is.na(tmp01[,2]),])
+#   })), 1, function(y) paste(y, collapse = "_"))))
+#   trans <- cbind(t(apply(transT, 1, function(z) as.numeric(strsplit(z[1], "_")[[1]]))), transT[,2])
+#   
+#   
+#   lwd.f <- approxfun(c(0, max(trans[,3])), c(0.1, 5), rule = 3)
+#   
+#   opar <- par(mfrow = c(1,1))
+#   plot(map %>% st_geometry(), col = "grey10", border = "grey50")
+#   pr <- st_as_sf(model@Sites$crds %>% as.data.frame(), coords = c("x", "y")) %>% st_set_crs(4326) %>% st_transform(st_crs(map)) %>% st_coordinates()
+#   segments(pr[trans[,1],1], pr[trans[,1],2], pr[trans[,2],1], pr[trans[,2],2], lwd = lwd.f(trans[,3]), col = "grey80")
+#   
+#   site01 <- cbind(sitesCrds, d = diag(tmp.out))
+#   cex.f <- approxfun(x = c(1, max(site01[-1,3])), y = c(0.1, 15), rule = 3)
+#   
+#   cex <- cex.f(site01[,3])
+#   cex[model@Sites$start] <- 2
+#   
+#   pch = rep(21, nrow(site01))
+#   pch[model@Sites$start] <- 23
+#   
+#   pts <- st_as_sf(site01[,1:2] %>% as_data_frame(), coords = c("x", "y")) %>% st_set_crs(4326) %>% st_transform(st_crs(map)) %>% st_coordinates()
+#   
+#   points(pts, cex = cex, pch = pch, col  = "white",
+#          bg = c(adjustcolor("blue", alpha.f = 0.55), rep(adjustcolor("orange", alpha.f = 0.55), nrow(site01)-1)), lwd = 1.4)
+#   points(pr[1,1], pr[1,2], pch = 21, bg = adjustcolor("white", alpha.f = 0.3))
+#   par(opar)
+#   
+#   #cat(sum(dead<1)/length(dead))
+#   
+# }
+
+
+# Faster and using ggplot so that plot objects can be saved.
+pltNetworkGG <- function(simuObj, map = europe_laea) {
   
-  sitesCrds <- model@Sites$crds
-  dead      <- apply(simu[,5,], 1, sum, na.rm = T)
-  trkS      <- simu[dead<1,2,]+1
+  require(data.table)
+  require(ggplot2)
   
-  diagT <-   apply(trkS, 1, function(x) {
+  sitesCrds <- siteTab@Sites$crds
+  dead      <- apply(simu[,5,], 1, sum, na.rm = TRUE)
+  trkS      <- simu[dead < 1, 2, ] + 1
+  
+  diagT <- apply(trkS, 1, function(x) {
     tt <- as.data.frame(table(x[!is.na(x)]))
-    m  <- merge(data.frame(Var1 = 1:nrow(sitesCrds)), tt, all.x = T)
+    m  <- merge(data.frame(Var1 = 1:nrow(sitesCrds)),
+                tt, all.x = TRUE)
     m[nrow(m),2] <- NA
     ifelse(is.na(m[,2]), 0, m[,2])
   })
-  tmp.out   <- matrix(0, ncol = nrow(sitesCrds), nrow = nrow(sitesCrds)) 
+  
+  tmp.out <- matrix(0,
+                    ncol = nrow(sitesCrds),
+                    nrow = nrow(sitesCrds))
+  
   diag(tmp.out) <- apply(diagT, 1, sum)
   
-  transT <- as.data.frame(table(apply(do.call("rbind", apply(trkS, 1, function(x) {
-    tmp01 <- cbind(x[!is.na(x)][-sum(!is.na(x))], x[!is.na(x)][-1])
-    as.data.frame(tmp01[tmp01[,1]!=tmp01[,2] & !is.na(tmp01[,1]) & !is.na(tmp01[,2]),])
-  })), 1, function(y) paste(y, collapse = "_"))))
-  trans <- cbind(t(apply(transT, 1, function(z) as.numeric(strsplit(z[1], "_")[[1]]))), transT[,2])
+  transT <- as.data.frame(
+    table(
+      apply(
+          do.call(
+            rbind, apply(trkS, 1, function(x) {
+            tmp01 <- cbind(
+              x[!is.na(x)][-sum(!is.na(x))],
+              x[!is.na(x)][-1]
+            )
+            
+            tmp01[
+              tmp01[,1] != tmp01[,2] &
+                !is.na(tmp01[,1]) &
+                !is.na(tmp01[,2]),
+            ]
+          })
+        ),
+        1,
+        function(y) paste(y, collapse = "_")
+      )
+    )
+  )
   
+  trans <- cbind(
+    t(apply(transT, 1,
+            function(z)
+              as.numeric(strsplit(z[1], "_")[[1]]))),
+    transT[,2])
   
-  lwd.f <- approxfun(c(0, max(trans[,3])), c(0.1, 5), rule = 3)
+  ## Project coordinates once
+  pts_sf <- st_as_sf(as.data.frame(sitesCrds),
+    coords = c("x", "y"), crs = 4326) |>
+    st_transform(st_crs(map))
   
-  opar <- par(mfrow = c(1,1))
-  plot(map %>% st_geometry(), col = "grey10", border = "grey50")
-  pr <- st_as_sf(model@Sites$crds %>% as.data.frame(), coords = c("x", "y")) %>% st_set_crs(4326) %>% st_transform(st_crs(map)) %>% st_coordinates()
-  segments(pr[trans[,1],1], pr[trans[,1],2], pr[trans[,2],1], pr[trans[,2],2], lwd = lwd.f(trans[,3]), col = "grey80")
+  coords <- cbind(sitesCrds, st_coordinates(pts_sf))
   
-  site01 <- cbind(sitesCrds, d = diag(tmp.out))
-  cex.f <- approxfun(x = c(1, max(site01[-1,3])), y = c(0.1, 15), rule = 3)
+  names(coords)[(ncol(coords)-1):ncol(coords)] <- c("X", "Y")
   
-  cex <- cex.f(site01[,3])
-  cex[model@Sites$start] <- 2
+  ## Segment dataframe
+  seg_df <- data.frame(
+    x    = coords$X[trans[,1]],
+    y    = coords$Y[trans[,1]],
+    xend = coords$X[trans[,2]],
+    yend = coords$Y[trans[,2]],
+    freq = trans[,3])
   
-  pch = rep(21, nrow(site01))
-  pch[model@Sites$start] <- 23
+  ## Point dataframe
+  site_df <- data.frame(X = coords$X, Y = coords$Y, d = diag(tmp.out))
   
-  pts <- st_as_sf(site01[,1:2] %>% as_data_frame(), coords = c("x", "y")) %>% st_set_crs(4326) %>% st_transform(st_crs(map)) %>% st_coordinates()
+  site_df$start <- FALSE
+  site_df$start[1] <- TRUE
+  site_df$end <- FALSE
+  site_df$end[nrow(site_df)] <- TRUE
   
-  points(pts, cex = cex, pch = pch, col  = "white",
-         bg = c(adjustcolor("blue", alpha.f = 0.55), rep(adjustcolor("orange", alpha.f = 0.55), nrow(site01)-1)), lwd = 1.4)
-  points(pr[1,1], pr[1,2], pch = 21, bg = adjustcolor("white", alpha.f = 0.3))
-  par(opar)
-  
-  #cat(sum(dead<1)/length(dead))
-  
+  ggplot() +
+    geom_sf(data = map, fill = "black", color = "lightgrey") +
+    geom_segment(data = seg_df, 
+                 aes(x = x, y = y, xend = xend, yend = yend, linewidth = freq), 
+                 colour = "orange") +
+    scale_linewidth(range = c(0.1, 3), guide = "none") +
+    geom_point(data = subset(site_df, !start & !end),
+      aes(X, Y, size = d), shape = 21,
+      fill = adjustcolor("orange", alpha.f = 0.55),
+      colour = "white", stroke = 0.3) +
+    geom_point(data = subset(site_df, start), aes(X, Y),
+      shape = 23, size = 5, fill = adjustcolor("turquoise", alpha.f = 1),
+      colour = "white", stroke = 0.3) +
+    geom_point(data = subset(site_df, end), aes(X, Y),
+               shape = 23, size = 5, fill = adjustcolor("orchid", alpha.f = 1),
+               colour = "white", stroke = 0.3) +
+    scale_size(range = c(0.1, 8), guide = "none") +
+    coord_sf() +
+    theme_void()
 }
+
+#############################
+#### Output functions #####
+#############################
+
+# This function calculates the following measures: 
+# individuals per site, mortality, staging times per site, body condition per site, fuelling rates per site, migratory path, successful migr prop and death prop 
+# Reminder for the calculations: simu has dimensions n.Ind, 5, n.Days. The 5 info in dim 2 are: day, site, x, fly/not, death. 
+# Fly/not takes either the ID of the next site, or 0 for alive individuals not using the site or NA for dead individuals.
+# Death takes 0 for alive and 1 for dead.
+
+computeOutputs <- function(simu, sdpObj){
+  
+  require(data.table)
+
+  # 0. intermediate result for following outputs: matrix of number of days spent in each site across individuals
+  # daysPerSite has dim1=NrInds, dim2=NrSites and contains the number of days spent by each individual in each site. 
+  # sites are ordered according to sdpObj@Sites$SitesID
+  daysPerSite <- matrix(nrow = dim(simu)[1], ncol = sdpObj@Init$NSites) # matrix of n.ind per n.sites, here sites are simply the indexes (order)
+  for (i in 1:nrow(daysPerSite)) { # for each individual i
+    tmp <- simu[i, , ]  # extract dim2 (5 info) and dim3 (days)
+    if (sum(tmp[5, ]) > 0) # if dead (info 5 == 1) exclude days after death from staging
+      tmp <- tmp[, 1:(min(which(tmp[5, ] == 1)))]
+    daysPerSite[i, ] <- apply(cbind(1:sdpObj@Init$NSites), 1, function(x) { #for each site
+      ifelse(all(tmp[2, ] < (x-1)), NA, sum(tmp[2, ] == (x-1), na.rm = T) # count how many days it spent in each site
+      ) 
+    })
+  }
+  
+  # 1. Migratory routes and staging time per individual. Each row of this matrix represents an individual route, indicating where the individual stopped (hexID) and for how long
+  migRoutes <- rbindlist(lapply(1:nrow(daysPerSite), function(i){ # for each individual
+    usedSites <- which(daysPerSite[i,]>0) # index of stopover sites
+    if(length(usedSites)>0){ # exclude dead individuals
+      staging <- daysPerSite[i,usedSites]
+      usedSitesID <- sdpObj@Sites$SitesID[usedSites] # hexID corresponding to used sites, including wintering and breeding
+      indRoute <- data.frame(ind = i,
+                             usedSitesID=as.character(usedSitesID), # corresponding to hexID
+                             stagDays=staging)
+      return(indRoute)}
+  }))
+  
+  # 2. N. of individuals per site (hexID) used (unused hexs are excluded)
+  ind_site <- apply(daysPerSite, 2, function(x){sum(x!=0, na.rm=T)})
+  names(ind_site) <- sdpObj@Sites$SitesID
+  indPerUsedSite <- (ind_site[ind_site != 0])
+  
+  # 3. Mean body condition per model day per site (hex ID) across individuals
+  Xmat <- matrix(nrow = sdpObj@Init$NSites, ncol = dim(simu)[3]) # nSites per n. model days
+  for(i in 1:ncol(Xmat)) { # for each day, average the body condition of all individuals per site
+    t1 <- aggregate(simu[,3,i], by = list(Site=simu[,2,i]), FUN = function(x) mean(x, na.rm = T))
+    Xmat[t1$Site+1, i]  <- t1$x # and add x to corresponding day and site in the matrix
+  }
+  meanXperSiteperDay <- t(Xmat)
+  names(meanXperSiteperDay) <- sdpObj@Sites$SitesID
+  
+  # 4. Mean body condition per site overall
+  mean.x <- apply(Xmat, 1, mean, na.rm=T)
+  names(mean.x) <- sdpObj@Sites$SitesID
+  meanXperUsedSite <- mean.x[!is.na(mean.x)]
+  
+  # 5. Prop of successful migration (all that arrived within the expected window)
+  SuccessMigrProp <- as.numeric(indPerUsedSite[names(indPerUsedSite) == sdpObj@Sites$breedSites] / 
+                                  dim(simu)[1]) # tot n. of simulated individuals
+  
+  # 6. Mortality proportion in population
+  nDeaths <- sum(apply(simu[,5,], 1, function(x) any(x==1)))
+  MortalityProp <- nDeaths/dim(simu)[1] #deaths/nInds, proportion of deaths in the population
+  
+  # 7. N. of stopovers per individual excluding start/end (one value per ind)
+  NstopsPerInd <- apply(daysPerSite, 1, function(x){sum(x!=0, na.rm=T)})
+  NstopsPerInd <- NstopsPerInd - 2 # excluding start and arrival sites
+  #hist(stop_ind, main = "N. of stopovers per individual")
+  
+  # 8. Mean staging times per stopover site across individuals (one value per site excluding wint and breed)
+  mean.staging <- apply(daysPerSite, 2, mean, na.rm = T)
+  names(mean.staging) <- sdpObj@Sites$SitesID
+  meanStagingPerUsedSite <- round(mean.staging[which(mean.staging>0)],2)
+  
+  # 9. Timing of migration. Site 0 is the wintering ground (first site index in C++) and site Nsites - 1 is the breeding ground (again because C++ starts counting from 0)
+  MigrationPerInd <- data.frame(matrix(nrow = dim(simu)[1], ncol = 3)) # one row per ind
+  names(MigrationPerInd) <- c("migrStartDOY", "migrEndDOY", "migrDurationDays")
+  for (i in 1:dim(simu)[1]) { # for each individual i
+    tmp <- simu[i, , ] # rows are day, site, x, fly/not, death; cols are model days 
+    migrStart <- max(tmp[1,][tmp[2,] == 0], na.rm=T) # last model day at which the individual is at wintering ground
+    if (any(tmp[5,] == 1) || # if dead or
+        all(tmp[2,] != (sdpObj@Init$NSites - 1), na.rm = TRUE) # if individual did not reach breeding ground
+        ){migrEnd <- NA # migration did not end (NA)
+    }else{
+      migrEnd <- min(tmp[1,][tmp[2,] == sdpObj@Init$NSites - 1], na.rm=T) # first model day at which breeding ground is reached
+    }
+    migrDuration <- migrEnd - migrStart
+    # store info in day of year instead of model days
+    MigrationPerInd[i, ] <- c(migrStart+sdpObj@Init$MinT, migrEnd+sdpObj@Init$MinT, migrDuration)
+  }
+  
+  # Return all measurements per scenario
+  return(list(migRoutesPerInd=migRoutes, MigrTimingPerInd=MigrationPerInd, meanXperSiteperDay=meanXperSiteperDay,
+              indPerUsedSite=indPerUsedSite, meanStagingPerUsedSite=meanStagingPerUsedSite, meanXperUsedSite=meanXperUsedSite,
+              NstopsPerInd=NstopsPerInd, SuccessMigrProp=SuccessMigrProp, MortalityProp=MortalityProp))
+}
+
+
+
+
+
+
+
+
+
+
+
+
 
 # simNetwork <- function(simu, model, crds_ind, map = eaafMap, plot = FALSE) {
 #   
