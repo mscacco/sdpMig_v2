@@ -1,4 +1,18 @@
-.Rproj.user
+# results, if any: not in git
+/output/
+
+# RStudio: personal state and session files
+.Rproj.user/
 .Rhistory
 .RData
 .Ruserdata
+
+# compiled C++ (rebuilt on install)
+src/*.o
+src/*.so
+src/*.dll
+
+# credentials: never in git
+.Renviron
+.netrc
+.cdsapirc
