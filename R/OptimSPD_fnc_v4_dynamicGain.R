@@ -59,7 +59,7 @@ find_nInds <- function(probs){
 # - 2nd col = day of the year (Jan 1st being day 1), 
 # - 3rd and 4th columns are coordinates (long and lat in decimal degrees),
 # - 5th column is GDD jerk in its original units
-# - 6th column is a suitability layer between 0 and 1 used to remove unsuitable hexagons below the suitT. Potential additional columns are ignored.
+#
 # 2. two integers indicating the site ID (hexagon ID) of the wintering and breeding site. These should be among the IDs in the first column of data.
 # 3. the list of parameters from previous steps,
 
@@ -83,10 +83,13 @@ makeSDPMig <- function(siteTab,
   max_u     <- 1.0    ## maximum foraging intensity (max prop. of day spent foraging)
   MaxReward <- 2      ## value within arrival window, for terminal reward calculation 
 
-  #___Subset Site Tab for Model Days___
+  #___Sort hex-day and subset Site Tab for Model Days___
+  # !! matrix fills below (deiM) assume rows ordered by site then day, with all days present for every site
+  siteTab <- siteTab[order(siteTab[,1], siteTab[,2]), ]
   modelRun <- length(listParms$startDOY:listParms$endDOY)
   siteTabDay <- siteTab[siteTab[,2] >= listParms$startDOY & # one row per site-day combination
                           siteTab[,2] <= listParms$endDOY,]
+  stopifnot(all(table(siteTabDay[,1]) == modelRun)) # every site has every model day
   
   #___Sorting sites (breeding site last, wintering site first)___
   hexIDs        <- unique(siteTab[,1])
