@@ -12,6 +12,11 @@
 #   new per-individual field inWindow and summary SuccessWindowProp (arrival at breeding site within the arrival window). success is unchanged.
 #   New per-individual fields arrVsOpeningDays and arrVsWindowDays (arrival relative to the breeding site opening day and to the arrival window);
 #   the opening day is stored in the model object as Sites$breedOpeningDOY.
+# - computeOutputs(): success = breeding site reached alive (individuals that die in flight are recorded at their destination);
+#   Nstops no longer depends on success; migrStartDOY = NA for individuals that never left the wintering ground (or died there);
+#   new per-individual arrivalTR (terminal reward at arrival day and body condition, as in C++ CalculateTR);
+#   new migStats column meanArrivalTR.
+# - T/F replaced by TRUE/FALSE (an object named T or F in the workspace would otherwise be used instead).
 # - condProfile(): date labels on the x axis were one day late.
 # - makeSDPMig(): BMR calculation and the BMR_file argument removed (BMR was only needed for the alternative DEE = 1.5 * BMR; DEE uses FMR).
 
@@ -148,11 +153,11 @@ makeSDPMig <- function(siteTab,
   
   #### !!!! We changed gain to being dynamic and changing daily with daily suitability values
   deiM <- matrix(siteTabDay[,5], nrow = nrow(gain.y), 
-                 ncol = modelRun, byrow = T)[hex_idx_new, ] # sort
+                 ncol = modelRun, byrow = TRUE)[hex_idx_new, ] # sort
   
   deiMnew <- t(apply(deiM, 1, function(x) {
-    mx <- which(x==max(x, na.rm = T))
-    x[mx:length(x)] <- max(x, na.rm = T)
+    mx <- which(x==max(x, na.rm = TRUE))
+    x[mx:length(x)] <- max(x, na.rm = TRUE)
     x
   }))
   deiM_scale <- scales::rescale(deiMnew, c(dee_inX/gainMax, 1), range(deiMnew))
@@ -405,7 +410,7 @@ fwdSimulation <- function(model, NrInd, start_t, start_site, start_x) {
       
       ## Not dead, not arrived, not flying
       if(!SimOut[ind, 6, time] & 
-         sum(SimOut[ind, 2, ] >= nrow(model@Sites$crds), na.rm = T)<1 & !SimOut[ind, 5, time]) {
+         sum(SimOut[ind, 2, ] >= nrow(model@Sites$crds), na.rm = TRUE)<1 & !SimOut[ind, 5, time]) {
         
         ## Decision (when negative feeding, when positive it's the site to fly)
         ## x is a level (0...MaxX), matrices are indexed with x+1
@@ -496,7 +501,7 @@ condProfile <- function(simuObj) {
   trkX  <- simuObj@Results$Fwd[,3,]
   trkD  <- simuObj@Results$Fwd[,5,]
   
-  cls <- rainbow(max(trkS, na.rm = T))[sample(1:max(trkS, na.rm = T))]
+  cls <- rainbow(max(trkS, na.rm = TRUE))[sample(1:max(trkS, na.rm = TRUE))]
   
   opar <- par(mfrow = c(1,1))
   matplot(simuObj@Init$MinT:simuObj@Init$MaxT, t(trkX), type = "n", 
@@ -711,15 +716,16 @@ computeOutputs <- function(simuObj){
                               stopGain = exitX - entranceX)
         # add death information
         if(sum(tmp$death[which(tmp$siteIdx==s)]) > 0){ # if the individual die in this site death=TRUE
-          indSite$death <- T
+          indSite$death <- TRUE
         }else{
-          indSite$death <- F
+          indSite$death <- FALSE
         }
         
         return(indSite)
       }))
-      # add whether migration was successful (if last stopover is the breeding ground)
-      if(indRoute$used_hexID[nrow(indRoute)] == simuObj@Sites$breedSites){
+      # add whether migration was successful (last stopover is the breeding ground and the individual is alive).
+      # Individuals that die in flight are recorded at their destination, so reaching the breeding site alone is not enough.
+      if(indRoute$used_hexID[nrow(indRoute)] == simuObj@Sites$breedSites & !any(tmp$death == 1, na.rm = TRUE)){
         indRoute$success <- TRUE
       }else{
         indRoute$success <- FALSE
@@ -746,23 +752,36 @@ computeOutputs <- function(simuObj){
   MigrationPerInd <- data.frame(combID = combID,
                                 ind = 1:Ninds, # one row per ind
                                 indID = paste(combID, 1:Ninds, sep = "_"),
-                                migrStartDOY = NA, migrEndDOY = NA, migrDurationDays = NA) 
-  
+                                migrStartDOY = NA, migrEndDOY = NA, migrDurationDays = NA,
+                                arrivalTR = NA)
+
   for (i in 1:Ninds) { # for each individual i
     tmp <- t(simuObj@Results$Fwd[i, , ])
-    migrStart <- max(tmp[,"moday"][tmp[,"siteIdx"] == 0], na.rm=T) # last model day at which the individual is at wintering ground
+    if (all(tmp[,"siteIdx"] == 0, na.rm = TRUE)) { # never left the wintering ground (including individuals that died there)
+      migrStart <- NA
+    }else{
+      migrStart <- max(tmp[,"moday"][tmp[,"siteIdx"] == 0], na.rm=TRUE) # last model day at which the individual is at wintering ground
+    }
     if (any(tmp[,"death"] == 1) || # if individual is dead or
         all(tmp[,"siteIdx"] != (simuObj@Init$NSites - 1), na.rm = TRUE) # unsuccessful (did not reach breeding ground)
     ){
       migrEnd <- NA # migration did not end (NA)
+      arrivalTR <- NA
     }else{
-      migrEnd <- min(tmp[,"moday"][tmp[,"siteIdx"] == simuObj@Init$NSites - 1], na.rm=T) # first model day at which breeding ground is reached
+      migrEnd <- min(tmp[,"moday"][tmp[,"siteIdx"] == simuObj@Init$NSites - 1], na.rm=TRUE) # first model day at which breeding ground is reached
+      # Terminal reward at arrival, as defined in the C++ code (CalculateTR): TimeReward(day) * StateReward(x) + B0.
+      # TimeReward is interpolated from xFTReward (C++ days, moday - 1) and yFTReward; StateReward is the sigmoid of body condition (0 if x = 0).
+      arrX <- tmp[which(tmp[,"moday"] == migrEnd), "x"]
+      timeR <- approx(simuObj@Species$xFTReward, simuObj@Species$yFTReward, xout = migrEnd - 1, rule = 2)$y
+      stateR <- if (arrX == 0) 0 else (tanh(simuObj@Species$w * (arrX - simuObj@Species$xc)) + 1) / 2
+      arrivalTR <- timeR * stateR + simuObj@Species$B0
     }
     migrDuration <- migrEnd - migrStart
     # store info in day of year instead of model days (moday 1 = MinT)
-    MigrationPerInd[i, 4:6] <- cbind(migrStart+simuObj@Init$MinT-1,
+    MigrationPerInd[i, 4:7] <- cbind(migrStart+simuObj@Init$MinT-1,
                                      migrEnd+simuObj@Init$MinT-1,
-                                     migrDuration)
+                                     migrDuration,
+                                     arrivalTR)
   }
   # Arrival at the breeding site within the arrival window (days with maximum terminal reward).
   # xFTReward is in C++ model days (0 = MinT), so DOY = MinT + xFTReward.
@@ -780,14 +799,15 @@ computeOutputs <- function(simuObj){
     group_by(combID, ind) %>%
     summarise(success = first(success),
               death = any(death == 1),
-              Nstops = n_distinct(used_siteIdx) - if_else(success, 2L, 1L), # drop 2 stops (breed and wint) for successful individuals but only 1 (wint) for unsuccessful ones
+              # drop the wintering site and, if reached (alive or dead), the breeding site from the stopover count
+              Nstops = n_distinct(used_siteIdx) - 1L - as.integer(any(used_siteIdx == simuObj@Init$NSites)), # used_siteIdx is 1-based
               meanStag = mean(stopDays[-1], na.rm = TRUE),
               .groups = "drop")
   # Merge both
   migPerInd <- merge(MigrationPerInd, NstopsPerInd, by=c("combID","ind"))
   
   # 3. Migration summary stats. Prop of mortality and of successful migration
-  SuccessProp <- sum(migPerInd$success)/Ninds #success/nInds: breeding site reached at any time
+  SuccessProp <- sum(migPerInd$success)/Ninds #success/nInds: breeding site reached alive at any time
   SuccessWindowProp <- sum(migPerInd$inWindow)/Ninds # breeding site reached within the arrival window
   MortalityProp <- sum(migPerInd$death)/Ninds #deaths/nInds, proportion of deaths in the population
   # same as: sum(apply(simuObj@Results$Fwd[,5,], 1, function(x) any(x==1)))/Ninds
@@ -795,20 +815,21 @@ computeOutputs <- function(simuObj){
                           Ninds = Ninds,
                           SuccessProp = SuccessProp,
                           SuccessWindowProp = SuccessWindowProp,
-                          MortalityProp = MortalityProp)
+                          MortalityProp = MortalityProp,
+                          meanArrivalTR = mean(migPerInd$arrivalTR, na.rm = TRUE)) # mean terminal reward of individuals that reached the breeding site alive
   
   # 4. Migration summary per site (hex ID). Unused sites are excluded.
   migPerSite <- group_by(migRoutes, used_siteIdx, used_hexID) %>% 
     summarise(Ninds = n(),
-              mean_wintDays = mean(wintDays, na.rm = T),
-              mean_wintGain = mean(wintGain, na.rm = T),
-              mean_stopDays = mean(stopDays, na.rm = T),
-              mean_breedDays = mean(breedDays, na.rm = T),
-              mean_arrivalDOY = mean(arrivalDOY, na.rm = T),
-              mean_departureDOY = mean(departureDOY, na.rm = T),
-              mean_arrivalCond = mean(arrivalCond, na.rm = T),
-              mean_departureCond = mean(departureCond, na.rm = T),
-              mean_stopGain = mean(stopGain, na.rm = T),
+              mean_wintDays = mean(wintDays, na.rm = TRUE),
+              mean_wintGain = mean(wintGain, na.rm = TRUE),
+              mean_stopDays = mean(stopDays, na.rm = TRUE),
+              mean_breedDays = mean(breedDays, na.rm = TRUE),
+              mean_arrivalDOY = mean(arrivalDOY, na.rm = TRUE),
+              mean_departureDOY = mean(departureDOY, na.rm = TRUE),
+              mean_arrivalCond = mean(arrivalCond, na.rm = TRUE),
+              mean_departureCond = mean(departureCond, na.rm = TRUE),
+              mean_stopGain = mean(stopGain, na.rm = TRUE),
               mean_mortality = mean(as.numeric(death)),
               .groups = "drop")
   

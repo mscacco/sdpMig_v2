@@ -146,11 +146,21 @@ str(out)
 
 hist(out$migPerInd$migrStartDOY)
 hist(out$migPerInd$migrDurationDays)
-hist(out$migPerInd$Nstops)
+# Number of stopovers (wintering and breeding sites excluded) per outcome:
+# arrived alive within the arrival window, arrived alive outside the window, unsuccessful (died or did not reach the breeding site).
+# For unsuccessful individuals Nstops counts the stops made until death or the end of the run.
+nsGroups <- list("Arrived within window"  = out$migPerInd$inWindow,
+                 "Arrived outside window" = out$migPerInd$success & !out$migPerInd$inWindow,
+                 "Unsuccessful"           = !out$migPerInd$success)
+nsBreaks <- seq(min(out$migPerInd$Nstops) - 0.5, max(out$migPerInd$Nstops) + 0.5, 1)
+for (g in names(nsGroups)) {
+  hist(out$migPerInd$Nstops[nsGroups[[g]]], breaks = nsBreaks,
+       main = paste0(g, " (n = ", sum(nsGroups[[g]]), ")"), xlab = "Number of stopovers")
+}
 hist(out$migPerInd$meanStag)
 
 # Arrival at the breeding site (migrEndDOY is NA for individuals that died or did not reach the breeding site)
-out$migStats # SuccessProp (breeding site reached at any time) and SuccessWindowProp (reached within the arrival window)
+out$migStats # SuccessProp (breeding site reached alive at any time) and SuccessWindowProp (reached within the arrival window)
 arrWindowDOY <- simuObj@Sites$breedOpeningDOY + c(-listParms$arrWindowBef, listParms$arrWindowAft) # arrival window in DOY
 inW  <- out$migPerInd$inWindow
 outW <- !out$migPerInd$inWindow & !is.na(out$migPerInd$migrEndDOY)
@@ -166,3 +176,11 @@ abline(v = arrWindowDOY, lty = 2)
 # Arrival relative to the opening day and to the arrival window (all individuals that reached the breeding site)
 hist(out$migPerInd$arrVsOpeningDays)
 hist(out$migPerInd$arrVsWindowDays)
+# Terminal reward at arrival (arrival time and body condition combined), individuals that reached the breeding site alive.
+# Arrivals outside the arrival window all have arrivalTR = B0 (dashed line), so they appear as a peak at B0.
+ggplot(out$migPerInd[!is.na(out$migPerInd$arrivalTR), ], aes(x = arrivalTR)) +
+  geom_density(fill = "orange", colour = "orange", alpha = 0.35, linewidth = 0.5) +
+  geom_vline(xintercept = simuObj@Species$B0, linetype = "dashed") +
+  labs(x = "Terminal reward at arrival (dashed: B0, arrival outside window)", y = "Density",
+       title = paste0("n = ", sum(!is.na(out$migPerInd$arrivalTR)), " individuals reaching the breeding site alive")) +
+  theme_minimal()

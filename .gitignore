@@ -16,3 +16,6 @@ src/*.dll
 .Renviron
 .netrc
 .cdsapirc
+
+# working notes (Martina + Claude): not in git
+BRIEF.md
