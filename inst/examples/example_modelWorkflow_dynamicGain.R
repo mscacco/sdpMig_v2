@@ -82,11 +82,9 @@ listParms <- list(
   maxBodyMass_g  = BMdf$max,
   MaxX = 100,     ## Levels of body condition (N. steps dividing max body mass - lean min body mass )
   B0 = 3,         ## Future reproductive success (N. juveniles survived in the future)
-  suitT = 0.4,    ## Suitability threshold. Hexagons with suitability below the threshold are excluded from the iteration to speed up computation
   
   # Flight capacities:
   f = 0.5,  ## proportion of body reserve (100) that can be devoted to flying
-  flightStrategy = NULL, # one of "landSoarer" or NULL (others). For estimation of flight cost based on Scacco et al. 2026
   speed_ms = 12.6, # Ground speed: either one numeric value in m/s or NULL. If provided, ground speed is assumed to be constant. If NULL, ground speed will be calculated based on wind support. For that, the arguments windTab_u/windTab_v must be provided within the makeSiteTab() function below.
   #speed_from_windSup = NULL, # Not yet implemented. Potentially an alternative equation to express ground speed as a function of wind support. If this is NULL and windSpeed_ms is also NULL, the default equation from Scacco et al. will be used to compute daily ground speeds from daily wind support values.
   
