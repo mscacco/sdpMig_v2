@@ -15,7 +15,7 @@
 # - computeOutputs(): success = breeding site reached alive (individuals that die in flight are recorded at their destination);
 #   Nstops no longer depends on success; migrStartDOY = NA for individuals that never left the wintering ground (or died there);
 #   new per-individual arrivalTR (terminal reward at arrival day and body condition, as in C++ CalculateTR);
-#   new migStats column meanArrivalTR.
+#   new migStats column meanArrivalTR; new per-individual routeID (sequence of hexIDs used, e.g. "598-1203-2459").
 # - T/F replaced by TRUE/FALSE (an object named T or F in the workspace would otherwise be used instead).
 # - condProfile(): date labels on the x axis were one day late.
 # - makeSDPMig(): BMR calculation and the BMR_file argument removed (BMR was only needed for the alternative DEE = 1.5 * BMR; DEE uses FMR).
@@ -753,10 +753,15 @@ computeOutputs <- function(simuObj){
                                 ind = 1:Ninds, # one row per ind
                                 indID = paste(combID, 1:Ninds, sep = "_"),
                                 migrStartDOY = NA, migrEndDOY = NA, migrDurationDays = NA,
-                                arrivalTR = NA)
+                                arrivalTR = NA,
+                                routeID = NA_character_)
 
   for (i in 1:Ninds) { # for each individual i
     tmp <- t(simuObj@Results$Fwd[i, , ])
+    # Route: sequence of hexIDs used, in order of use (wintering site first). Consecutive days at the same site are collapsed,
+    # so a site visited twice with another site in between appears twice. Ends at the breeding site, or where the individual died or stopped.
+    routeSites <- rle(tmp[!is.na(tmp[,"siteIdx"]), "siteIdx"])$values # C++ site indices
+    MigrationPerInd$routeID[i] <- paste(simuObj@Sites$SitesID[routeSites + 1], collapse = "-")
     if (all(tmp[,"siteIdx"] == 0, na.rm = TRUE)) { # never left the wintering ground (including individuals that died there)
       migrStart <- NA
     }else{
