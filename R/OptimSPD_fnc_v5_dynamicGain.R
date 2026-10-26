@@ -19,6 +19,8 @@
 # - T/F replaced by TRUE/FALSE (an object named T or F in the workspace would otherwise be used instead).
 # - condProfile(): date labels on the x axis were one day late.
 # - makeSDPMig(): BMR calculation and the BMR_file argument removed (BMR was only needed for the alternative DEE = 1.5 * BMR; DEE uses FMR).
+# - New listParms$flightMort (mortality risk per day of flight time), passed to Init()/InitSim() after f (requires src/SdpMigC.cpp, not SdpMigC_original.cpp).
+# - fwdSimulation(): a NaN flight destination (no destination reachable) falls back to foraging.
 
 setClass(
   "SDPMig",
@@ -95,6 +97,8 @@ makeSDPMig <- function(siteTab,
   require(sf)
   require(data.table)
   
+  if (is.null(listParms$flightMort)) stop("listParms$flightMort (mortality risk per day of flight time) is missing.")
+
   #___Species parameters to leave constant________
   w         <- 0.028  ## Parameters for sigmoidal TR function: slope
   xc        <- 55     ## Parameters for sigmoidal TR function: body condition (x) at inflection point of sigmoid
@@ -259,6 +263,7 @@ makeSDPMig <- function(siteTab,
       xc    = xc,
       max_u = max_u,
       f     = listParms$f,
+      flightMort = listParms$flightMort, # mortality risk per day of flight time
       c     = c_new,
       # Wind and flight speed can vary per site so might go into site parameters but for now we leave them here for consistency with previous models
       WindAssist = 0, #can be either one value or an array [nhex, nhex, ndays] 
@@ -319,6 +324,7 @@ bwdIteration <- function(obj, pbar = FALSE) {
        obj@Species$c, # double
        obj@Species$speed, # double
        obj@Species$f, # double
+       obj@Species$flightMort, # double
        obj@Species$WindAssist, # arma::vec
        obj@Species$WindProb, # arma::vec
        obj@Species$ZStdNorm, # arma::vec
@@ -374,6 +380,7 @@ fwdSimulation <- function(model, NrInd, start_t, start_site, start_x) {
           model@Species$c,
           model@Species$speed,
           model@Species$f,
+          model@Species$flightMort,
           model@Species$WindAssist,
           model@Species$WindProb,
           model@Species$ZStdNorm,
@@ -418,6 +425,8 @@ fwdSimulation <- function(model, NrInd, start_t, start_site, start_x) {
           decision  <- model@Results$DecisionMatrix[SimOut[ind, 2, time], time, SimOut[ind, 3, time]+1, 1]
         } else {
           decision  <- model@Results$DecisionMatrix[SimOut[ind, 2, time], time, SimOut[ind, 3, time]+1, 2]
+          # NaN = no destination reachable (probability of flying is 0 in that case, so this is only a safeguard): forage
+          if (is.na(decision)) decision <- model@Results$DecisionMatrix[SimOut[ind, 2, time], time, SimOut[ind, 3, time]+1, 1]
         }
 
         ## Action

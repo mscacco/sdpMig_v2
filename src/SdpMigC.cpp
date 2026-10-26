@@ -24,6 +24,7 @@ double c;
 double speed;
 double max_u;
 double f;
+double flightMort; // mortality risk per day of flight
 arma::vec WindAssist;
 arma::vec WindProb;
 arma::vec ZStdNorm;
@@ -419,6 +420,7 @@ double Flying(
       part4 = tim2*res2*sdp::FMatrix((int)(t),   dep_site, (int)(nextx));
      
       interpolReward = part1+part2+part3+part4;
+      interpolReward *= (1.0 - sdp::flightMort * distance / sdp::speed); // survival during the flight (risk per day of flight time)
     }
     double help_old = Whold;
     Whold = help_old + (sdp::WindProb(h) * interpolReward);
@@ -447,6 +449,7 @@ void Init( int MaxT,
            double c,
            double speed,
            double f,
+           double flightMort,
            Rcpp::NumericVector WindAssist,
            Rcpp::NumericVector WindProb,
            Rcpp::NumericVector ZStdNorm,
@@ -478,6 +481,7 @@ void Init( int MaxT,
   sdp::c = c;
   sdp::speed = speed;
   sdp::f = f;
+  sdp::flightMort = flightMort;
   sdp::WindAssist = WindAssist;
   sdp::WindProb = WindProb;
   sdp::ZStdNorm = ZStdNorm;
@@ -585,6 +589,13 @@ Rcpp::List BackwardIteration(bool pbar) {
           }
         }
 
+        if (help_flying <= 0.0) {
+          // No destination can be reached: the bird forages. Before, the flight decision stayed at its default
+          // (site 0, the wintering site) and was taken with a small probability through decision error.
+          sdp::DMatrix2(site, time, x) = arma::datum::nan;
+          sdp::PMatrix1(site, time, x) = 1.0;
+          sdp::PMatrix2(site, time, x) = 0.0;
+        } else {
         sdp::PMatrix1(site, time, x) = DecError((max_Reward - sdp::FMatrix(time, site, x))/max_Reward, sdp::decError);
         sdp::PMatrix2(site, time, x) = DecError((max_Reward - Mrew(best_bb))/max_Reward, sdp::decError);
 
@@ -598,6 +609,7 @@ Rcpp::List BackwardIteration(bool pbar) {
           sdp::PMatrix1(site, time, x) = 0.0;
           sdp::PMatrix2(site, time, x) = 0.0;
         }
+        } // end else (a destination can be reached)
         sdp::FMatrix(time, site, x)   = max_Reward;
         
       } // end x
@@ -634,6 +646,7 @@ void InitSim (int MaxT,
               double c,
               double speed,
               double f,
+              double flightMort,
               Rcpp::NumericVector WindAssist,
               Rcpp::NumericVector WindProb,
               Rcpp::NumericVector ZStdNorm,
@@ -664,6 +677,7 @@ void InitSim (int MaxT,
   sdp::c = c;
   sdp::speed = speed;
   sdp::f = f;
+  sdp::flightMort = flightMort;
   sdp::WindAssist = WindAssist;
   sdp::WindProb = WindProb;
   sdp::ZStdNorm = ZStdNorm;
@@ -783,6 +797,7 @@ arma::vec simFlying(int decision, int time, int site, int x)
   nextx  = xReserve + (((Sqr_c/Sqr_ca) - 1.0) * (double)(sdp::MaxX)); // reserve + remaining usable fuel
   // Ground expenditure for the part of the last flight day not spent flying, same rule as in Flying()
   nextx -= sdp::expend(dest_site, time) * (std::ceil(distance / sdp::speed) - distance / sdp::speed);
+  if (R::runif(0, 1) < sdp::flightMort * distance / sdp::speed) nextx = 0.0; // death during the flight (risk per day of flight time): x = 0, dead
   if (distance > range) nextx = 0.0; // destination out of range (only through decision error): x = 0, the R wrapper marks the bird as dead
 
   

@@ -84,6 +84,7 @@ listParms <- list(
   
   # Flight capacities:
   f = 1,  ## proportion of MaxX usable as flight fuel; (1 - f) * MaxX is a reserve that is never used for flight (a bird with x <= (1 - f) * MaxX cannot fly)
+  flightMort = 5e-4, ## mortality risk per day of flight time (a 0.5-day flight has risk 2.5e-4). For comparison, daily predation risk at stopovers is about 1e-4 to 1e-3
   speed_ms = 12.6, # Ground speed: either one numeric value in m/s or NULL. If provided, ground speed is assumed to be constant. If NULL, ground speed will be calculated based on wind support. For that, the arguments windTab_u/windTab_v must be provided within the makeSiteTab() function below.
   #speed_from_windSup = NULL, # Not yet implemented. Potentially an alternative equation to express ground speed as a function of wind support. If this is NULL and windSpeed_ms is also NULL, the default equation from Scacco et al. will be used to compute daily ground speeds from daily wind support values.
   
