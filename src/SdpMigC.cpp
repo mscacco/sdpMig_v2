@@ -25,6 +25,7 @@ double speed;
 double max_u;
 double f;
 double flightMort; // mortality risk per day of flight
+double stayThresh; // relative advantage that flying must have over foraging, otherwise the bird stays (backward iteration only)
 arma::vec WindAssist;
 arma::vec WindProb;
 arma::vec ZStdNorm;
@@ -450,6 +451,7 @@ void Init( int MaxT,
            double speed,
            double f,
            double flightMort,
+           double stayThresh,
            Rcpp::NumericVector WindAssist,
            Rcpp::NumericVector WindProb,
            Rcpp::NumericVector ZStdNorm,
@@ -482,6 +484,7 @@ void Init( int MaxT,
   sdp::speed = speed;
   sdp::f = f;
   sdp::flightMort = flightMort;
+  sdp::stayThresh = stayThresh;
   sdp::WindAssist = WindAssist;
   sdp::WindProb = WindProb;
   sdp::ZStdNorm = ZStdNorm;
@@ -611,6 +614,14 @@ Rcpp::List BackwardIteration(bool pbar) {
         }
         } // end else (a destination can be reached)
         sdp::FMatrix(time, site, x)   = max_Reward;
+        // Stay rule: if flying is not better than foraging by more than stayThresh (relative), the bird stays.
+        // Breaks (near-)ties between staying and flying, which decision error otherwise turns into 50/50 choices
+        // (back-and-forth flights between sites with equal value). The value is then the value of foraging.
+        if (help_flying > 0.0 && (help_flying - f_help) / max_Reward <= sdp::stayThresh) {
+          sdp::PMatrix1(site, time, x) = 1.0;
+          sdp::PMatrix2(site, time, x) = 0.0;
+          sdp::FMatrix(time, site, x)  = f_help;
+        }
         
       } // end x
     } // end site
