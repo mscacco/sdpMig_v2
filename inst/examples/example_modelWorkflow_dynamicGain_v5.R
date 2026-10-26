@@ -11,27 +11,18 @@ library(ggplot2)
 library(patchwork)
 sf_use_s2(FALSE)
 
-### If not ran as package, import model functions as:
-library(Rcpp)
-library(RcppProgress)
-library(RcppArmadillo)
-Rcpp::sourceCpp("src/SdpMigC.cpp") # C++ functions, with fixes (breeding terminal reward, whole-day flights, flight reserve, predation, Round). The original is in src/SdpMigC_original.cpp
-source("R/OptimSPD_fnc_v5_dynamicGain.R") # R functions (v5)
+### Load the package (installed with remotes::install_github("mscacco/sdpMig_v2"), or from the repo folder with devtools::load_all())
+library(sdpMig2)
 
-#_______________________
-# Once all is running smoothly we delete the above and run once:
-# Rcpp::compileAttributes() and then:
-# Once the sdpMig2 code will be turned into a package the above can be deleted and it will be enough to load:
-# library(remotes)
-# remotes::install_github("mscacco/sdpMig_v2")
-# library(sdpMig_v2)
-#_______________________
+# Without installing, the functions can also be loaded from the repo folder:
+# Rcpp::sourceCpp("src/SdpMigC.cpp") # C++ functions. The original C++ is in inst/archive/SdpMigC_original.cpp
+# source("R/OptimSPD_fnc_v5_dynamicGain.R") # R functions (v5)
 
 #__________________
 ### Environment ###
 
 # This is a spatial object with one observation per hexagon-doy combination + geometry
-siteTab  <- readRDS("./inst/data/sample_siteTab_yday-GDDjerk.rds") |> st_as_sf()
+siteTab  <- readRDS(system.file("extdata", "sample_siteTab_yday-GDDjerk.rds", package = "sdpMig2")) |> st_as_sf()
 nrow(siteTab) == length(unique(siteTab$hex_id)) * length(unique(siteTab$yday))
 
 ggplot() + ggtitle("GDD jerk - day 61") +
@@ -51,7 +42,7 @@ StartEndTab <- expand.grid(wintering = allWintSites, breeding = allBreedSites)
 ### Species Body mass ###
 
 # from Dunning 2007. A transcript of the body masses for waterfowl (Anatidae family) is provided in inputData
-BMdf <- read.csv("./inst/data/Anatidae_bodymass_fromHandbookbyDunning.csv") |>
+BMdf <- read.csv(system.file("extdata", "Anatidae_bodymass_fromHandbookbyDunning.csv", package = "sdpMig2")) |>
   filter(grepl("Anser albifrons", Species.Name)) |>
   group_by(Common.Name) |> summarise(mean = mean(Mean),
                                       min  = min(Mean),

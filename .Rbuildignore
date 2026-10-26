@@ -1,0 +1,9 @@
+^BRIEF\.md$
+^CLAUDE\.md$
+^.*\.Rproj$
+^\.Rproj\.user$
+^coauthor_docs$
+^DESCRIPTION\.txt$
+^LICENSE\.md$
+^ $
+\.DS_Store$

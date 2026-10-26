@@ -6,6 +6,12 @@ In this model implementation, gain (energy intake) at every site is determined b
 
 ## Installation
 
+Development version (package name `sdpMig2`, repository `sdpMig_v2`):
+
 ```r
-# install.packages("devtools")
-devtools::install_github("mscacco/sdpMig_v2")
+# install.packages("remotes")
+remotes::install_github("mscacco/sdpMig_v2")
+library(sdpMig2)
+```
+
+An example workflow is in `inst/examples/example_modelWorkflow_dynamicGain_v5.R`.

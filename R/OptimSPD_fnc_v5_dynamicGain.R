@@ -25,6 +25,9 @@
 #   foraging by more than stayThresh (relative). Passed to Init(). Removes back-and-forth flights between sites of equal value.
 # - fwdSimulation(): a NaN flight destination (no destination reachable) falls back to foraging.
 
+#' Model object of class SDPMig
+#'
+#' @exportClass SDPMig
 setClass(
   "SDPMig",
   slots = c(Name    = 'character',
@@ -87,6 +90,9 @@ find_nInds <- function(probs){
 # 2. two integers indicating the site ID (hexagon ID) of the wintering and breeding site. These should be among the IDs in the first column of data.
 # 3. the list of parameters from previous steps,
 
+#' Create the model object from the site table and parameters
+#'
+#' @export
 makeSDPMig <- function(siteTab,
                        wintSite, 
                        breedSite,
@@ -312,6 +318,9 @@ makeSDPMig <- function(siteTab,
 ### Backward iteration ###
 ##########################
 
+#' Backward iteration: compute the optimal policy
+#'
+#' @export
 bwdIteration <- function(obj, pbar = FALSE) {
   
   Init(obj@Init$MaxT - obj@Init$MinT, # int
@@ -364,6 +373,9 @@ bwdIteration <- function(obj, pbar = FALSE) {
 #### Forward Simulation#####
 ############################
 
+#' Forward simulation of individuals following the optimal policy
+#'
+#' @export
 fwdSimulation <- function(model, NrInd, start_t, start_site, start_x) {
 
   # Indexing between C++ (0-based) and R (1-based):
@@ -509,6 +521,9 @@ fwdSimulation <- function(model, NrInd, start_t, start_site, start_x) {
 #############################
 
 ### Plot body condition of single simulation over time
+#' Plot body condition over time for simulated individuals
+#'
+#' @export
 condProfile <- function(simuObj) {
   
   trkS  <- simuObj@Results$Fwd[,2,]+1
@@ -534,6 +549,9 @@ condProfile <- function(simuObj) {
 
 ### Plot migratory routes of single simulation as network
 
+#' Plot the simulated migration network
+#'
+#' @export
 pltNetworkGG <- function(simuObj, map = europe_laea) {
   
   require(data.table)
@@ -634,6 +652,9 @@ pltNetworkGG <- function(simuObj, map = europe_laea) {
 
 ### Comparison/validation of parameters between sets of simulations (plots and summary table)
 
+#' Density plot of an output variable
+#'
+#' @export
 make_density <- function(data, var, xlab, group, cols) {
   require(ggplot2)
   ggplot(st_drop_geometry(data), aes(x = .data[[var]], fill = .data[[group]], colour = .data[[group]])) +
@@ -645,6 +666,9 @@ make_density <- function(data, var, xlab, group, cols) {
     theme(legend.position = "none")
 }
 
+#' Bar plot of an output variable
+#'
+#' @export
 make_bar <- function(data, var, xlab, group, cols) {
   require(ggplot2)
   data %>%
@@ -660,6 +684,9 @@ make_bar <- function(data, var, xlab, group, cols) {
     theme(legend.position = "none")
 }
 
+#' Summary table of output variables
+#'
+#' @export
 make_table <- function(data, vars, group) {
   require(ggplot2)
   require(tidyr)
@@ -693,6 +720,9 @@ make_table <- function(data, vars, group) {
 # moday is the R time index (1 = startDOY), so DOY = moday + MinT - 1. siteIdx is the C++ index (0 = wintering, NSites-1 = breeding).
 # x is the body condition level (0...MaxX). Death takes 0 for alive and 1 for dead.
 
+#' Compute output metrics from a forward simulation
+#'
+#' @export
 computeOutputs <- function(simuObj){
   
   require(data.table)
