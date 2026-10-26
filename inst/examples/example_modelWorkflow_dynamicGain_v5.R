@@ -152,6 +152,7 @@ hist(out$migPerInd$meanStag)
 
 # Arrival at the breeding site (migrEndDOY is NA for individuals that died or did not reach the breeding site)
 out$migStats # SuccessProp (breeding site reached alive at any time) and SuccessWindowProp (reached within the arrival window)
+# nRoutes and topRouteShare: number of distinct routes and share of the most common route (individuals reaching the breeding site alive)
 arrWindowDOY <- simuObj@Sites$breedOpeningDOY + c(-listParms$arrWindowBef, listParms$arrWindowAft) # arrival window in DOY
 inW  <- out$migPerInd$inWindow
 outW <- !out$migPerInd$inWindow & !is.na(out$migPerInd$migrEndDOY)
@@ -164,9 +165,8 @@ abline(v = arrWindowDOY, lty = 2) # window limits
 hist(out$migPerInd$migrEndDOY[outW], breaks = seq(xlim[1]-0.5, xlim[2]+0.5, 1), xlim = xlim,
      main = paste0("Arrival outside window (n = ", sum(outW), ")"), xlab = "Arrival DOY at breeding site")
 abline(v = arrWindowDOY, lty = 2)
-# Arrival relative to the opening day and to the arrival window (all individuals that reached the breeding site)
+# Arrival relative to the opening day of the breeding site (all individuals that reached the breeding site)
 hist(out$migPerInd$arrVsOpeningDays)
-hist(out$migPerInd$arrVsWindowDays)
 # Terminal reward at arrival (arrival time and body condition combined), individuals that reached the breeding site alive.
 # Arrivals outside the arrival window all have arrivalTR = B0 (dashed line), so they appear as a peak at B0.
 ggplot(out$migPerInd[!is.na(out$migPerInd$arrivalTR), ], aes(x = arrivalTR)) +

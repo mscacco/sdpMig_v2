@@ -10,12 +10,14 @@
 # - makeSDPMig(): terminal reward x values (xFTReward) are given in C++ model days (0-based), so the arrival window is no longer shifted one day late.
 # - computeOutputs(): model day -> DOY conversion is moday + MinT - 1 (was one day late); delta_BodyCond uses dplyr::lag explicitly;
 #   new per-individual field inWindow and summary SuccessWindowProp (arrival at breeding site within the arrival window). success is unchanged.
-#   New per-individual fields arrVsOpeningDays and arrVsWindowDays (arrival relative to the breeding site opening day and to the arrival window);
+#   New per-individual field arrVsOpeningDays (arrival relative to the breeding site opening day);
 #   the opening day is stored in the model object as Sites$breedOpeningDOY.
 # - computeOutputs(): success = breeding site reached alive (individuals that die in flight are recorded at their destination);
 #   Nstops no longer depends on success; migrStartDOY = NA for individuals that never left the wintering ground (or died there);
 #   new per-individual arrivalTR (terminal reward at arrival day and body condition, as in C++ CalculateTR);
 #   new migStats column meanArrivalTR; new per-individual routeID (sequence of hexIDs used, e.g. "598-1203-2459").
+# - computeOutputs(): new migStats columns nRoutes and topRouteShare (number of distinct routes and share of the most common route,
+#   individuals that reached the breeding site alive).
 # - T/F replaced by TRUE/FALSE (an object named T or F in the workspace would otherwise be used instead).
 # - condProfile(): date labels on the x axis were one day late.
 # - makeSDPMig(): BMR calculation and the BMR_file argument removed (BMR was only needed for the alternative DEE = 1.5 * BMR; DEE uses FMR).
@@ -840,9 +842,6 @@ computeOutputs <- function(simuObj){
     MigrationPerInd$migrEndDOY >= arrWindowDOY[1] & MigrationPerInd$migrEndDOY <= arrWindowDOY[2]
   # Arrival relative to the breeding site opening day (days; negative = before opening day), comparable across breeding sites
   MigrationPerInd$arrVsOpeningDays <- MigrationPerInd$migrEndDOY - simuObj@Sites$breedOpeningDOY
-  # Arrival relative to the arrival window (days; 0 = within the window, negative = days before window start, positive = days after window end)
-  MigrationPerInd$arrVsWindowDays <- ifelse(MigrationPerInd$migrEndDOY < arrWindowDOY[1], MigrationPerInd$migrEndDOY - arrWindowDOY[1],
-                                            ifelse(MigrationPerInd$migrEndDOY > arrWindowDOY[2], MigrationPerInd$migrEndDOY - arrWindowDOY[2], 0))
   # Then add N. of stopovers, avg staging, death and success per individual excluding start/end (one value per ind)
   NstopsPerInd <- migRoutes %>%
     group_by(combID, ind) %>%
@@ -858,6 +857,10 @@ computeOutputs <- function(simuObj){
   # 3. Migration summary stats. Prop of mortality and of successful migration
   SuccessProp <- sum(migPerInd$success)/Ninds #success/nInds: breeding site reached alive at any time
   SuccessWindowProp <- sum(migPerInd$inWindow)/Ninds # breeding site reached within the arrival window
+  # Route concentration: individuals that reached the breeding site alive (NA if none)
+  succRoutes <- migPerInd$routeID[migPerInd$success]
+  nRoutes <- length(unique(succRoutes))
+  topRouteShare <- if (length(succRoutes) > 0) max(table(succRoutes)) / length(succRoutes) else NA
   MortalityProp <- sum(migPerInd$death)/Ninds #deaths/nInds, proportion of deaths in the population
   # same as: sum(apply(simuObj@Results$Fwd[,5,], 1, function(x) any(x==1)))/Ninds
   migrStats <- data.frame(combID = combID,
@@ -865,7 +868,9 @@ computeOutputs <- function(simuObj){
                           SuccessProp = SuccessProp,
                           SuccessWindowProp = SuccessWindowProp,
                           MortalityProp = MortalityProp,
-                          meanArrivalTR = mean(migPerInd$arrivalTR, na.rm = TRUE)) # mean terminal reward of individuals that reached the breeding site alive
+                          meanArrivalTR = mean(migPerInd$arrivalTR, na.rm = TRUE), # mean terminal reward of individuals that reached the breeding site alive
+                          nRoutes = nRoutes, # number of distinct routes (routeID) of individuals that reached the breeding site alive
+                          topRouteShare = topRouteShare) # proportion of those individuals that used the most common route
   
   # 4. Migration summary per site (hex ID). Unused sites are excluded.
   migPerSite <- group_by(migRoutes, used_siteIdx, used_hexID) %>% 
