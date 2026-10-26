@@ -15,7 +15,7 @@ sf_use_s2(FALSE)
 library(Rcpp)
 library(RcppProgress)
 library(RcppArmadillo)
-Rcpp::sourceCpp("src/SdpMigC.cpp") # C++ functions
+Rcpp::sourceCpp("src/SdpMigC.cpp") # C++ functions, with fixes (breeding terminal reward, whole-day flights, flight reserve, predation, Round). The original is in src/SdpMigC_original.cpp
 source("R/OptimSPD_fnc_v5_dynamicGain.R") # R functions (v5)
 
 #_______________________
@@ -83,7 +83,7 @@ listParms <- list(
   B0 = 3,         ## Future reproductive success (N. juveniles survived in the future)
   
   # Flight capacities:
-  f = 0.5,  ## proportion of body reserve (100) that can be devoted to flying
+  f = 1,  ## proportion of MaxX usable as flight fuel; (1 - f) * MaxX is a reserve that is never used for flight (a bird with x <= (1 - f) * MaxX cannot fly)
   speed_ms = 12.6, # Ground speed: either one numeric value in m/s or NULL. If provided, ground speed is assumed to be constant. If NULL, ground speed will be calculated based on wind support. For that, the arguments windTab_u/windTab_v must be provided within the makeSiteTab() function below.
   #speed_from_windSup = NULL, # Not yet implemented. Potentially an alternative equation to express ground speed as a function of wind support. If this is NULL and windSpeed_ms is also NULL, the default equation from Scacco et al. will be used to compute daily ground speeds from daily wind support values.
   

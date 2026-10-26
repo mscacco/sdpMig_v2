@@ -79,8 +79,8 @@ double DecError(
 // Function equivalent to round(value, 0) in R
 int Round(double value)
 {  
-  if (value - floor(value) < 0.5) return (int)(value);
-  else return ((int)(value) + 1);
+  // Round half up, correct also for negative values ((int) truncates towards 0, so the old version gave e.g. -0.3 -> 1, -1.7 -> -1)
+  return (int)(floor(value + 0.5));
 }
 
 // Sigmoidal TR function (not exported)
@@ -297,8 +297,9 @@ double Foraging(const int& time,
   
   f1_old = f1;
   f2_old = f2;
-  f1 = (1.0 - Predation(time, site, x, u1, f1)) * f1;
-  f2 = (1.0 - Predation(time, site, x, u2, f2)) * f2;
+  // Predation() takes the food gain per day (mean), not the fitness of the option (f1, f2, hold1, hold2 were passed before)
+  f1 = (1.0 - Predation(time, site, x, u1, mean)) * f1;
+  f2 = (1.0 - Predation(time, site, x, u2, mean)) * f2;
   
   while ((fabs(u3 - u0)) > tol)
   {
@@ -315,7 +316,7 @@ double Foraging(const int& time,
         hold2 = FindF(time, site, x, accuracy, gain, hold2_old, u2);
       }
       f1 = f2;
-      f2 = ((1.0 - Predation(time, site, x, u2, hold2)) * hold2);
+      f2 = ((1.0 - Predation(time, site, x, u2, mean)) * hold2);
     }
     if (f2 <= f1)
     {
@@ -330,7 +331,7 @@ double Foraging(const int& time,
         hold1 = FindF(time, site, x, accuracy, gain, hold1_old, u1);
       }
       f2 = f1;
-      f1 = ((1.0 - Predation(time, site, x, u1, hold1)) * hold1);
+      f1 = ((1.0 - Predation(time, site, x, u1, mean)) * hold1);
     }
   }  //end of while loop
   
@@ -372,10 +373,13 @@ double Flying(
   Whold = 0.0;
   f = sdp::f; //1.0;
   
-  double usableF = f * x / sdp::MaxX;
+  // Flight reserve: (1 - f) * MaxX is body storage that can never be used for flight; only the storage above it is fuel.
+  // A bird with x <= xReserve cannot fly. After the flight the reserve is still there (nextx = xReserve + remaining fuel).
+  // Same rule as in simFlying().
+  double xReserve = (1.0 - f) * sdp::MaxX;
+  double usableF  = std::max(0.0, (double)(x) - xReserve) / sdp::MaxX;
   range = sdp::c * (1.0 - 1.0 / sqrt(1.0 + usableF));
-  //range = sdp::c * (1.0 - (1.0/ (sqrt(1.0 + ( ((double)(x) - (1 - f) * x)/(double)(sdp::MaxX)) )))); //determine Range
-  
+
   totalD = sdp::dist(site, dep_site); // distance between starting site and destination
   for (int h = 0; h < sdp::WindProb.size(); ++h) // wind support
   {
@@ -383,10 +387,16 @@ double Flying(
 
     Sqr_c = (sdp::c * sdp::c);
     Sqr_ca = (sdp::c - (range - distance))*(sdp::c - (range - distance));
-    nextx = ((Sqr_c/Sqr_ca) - 1.0) * sdp::MaxX;
-    t = (double)(time) + (distance / sdp::speed);
+    nextx = xReserve + ((Sqr_c/Sqr_ca) - 1.0) * sdp::MaxX; // reserve + remaining usable fuel
+    // Flights last whole days, rounded up (e.g. 0.3 -> 1 day, 1.3 -> 2 days), so a flight never reads the time slice
+    // that is being computed (same-day arrivals read sites not yet updated at this time step). Same rule as in simFlying().
+    t = (double)(time) + std::ceil(distance / sdp::speed);
+    // The part of the last flight day not spent flying is spent on the ground: it costs the daily ground expenditure
+    // (proportional to the time left), otherwise a short flight is cheaper than a day on the ground. Same rule as in simFlying().
+    nextx -= sdp::expend(dep_site, time) * (std::ceil(distance / sdp::speed) - distance / sdp::speed);
 
     if (t >= (sdp::MaxT)) interpolReward = 0.0;
+    else  if (distance > range) interpolReward = 0.0; // destination out of range of the usable fuel
     else  if (nextx <= 0.0) interpolReward = 0.0;
     else
     {
@@ -527,7 +537,9 @@ Rcpp::List BackwardIteration(bool pbar) {
 
   for (int time = (sdp::MaxT-1); time >= 0; --time)
   {
-    for (int site = 0; site < sdp::NSites; ++site)
+    // The breeding site (NSites-1) is excluded: it is absorbing, its value is the terminal reward set in FM_TR above.
+    // Including it overwrote the terminal reward with the value of foraging/flying on from the breeding site.
+    for (int site = 0; site < (sdp::NSites - 1); ++site)
     {
       sdp::FMatrix(time, site, 0) = 0.0;
       // p.increment(); // update progress
@@ -710,11 +722,14 @@ arma::vec simForaging(double f_intensity, int time, int site, int x)
   case 2: x = sdp::MaxX; break;
   };
   
-  if ((f_intensity > 0.0) && (gain > 0.0) && (pre_x > 0.0))
+  // Same net gain and same rule for netgain <= 0 as in the backward iteration (Predation())
+  double netgain = f_intensity * gain - expenditure;
+  if (netgain <= 0.0) netgain = 0.0000005;
+  if ((f_intensity > 0.0) && (pre_x > 0.0))
   {
-    double help1 = exp((sdp::pred_a1 + 1.0) * log(pre_x + f_intensity * gain));
+    double help1 = exp((sdp::pred_a1 + 1.0) * log(pre_x + netgain));
     double help2 = exp((sdp::pred_a1 + 1.0) * log(pre_x));
-    double help3 = (sdp::pred_a1 + 1.0) * f_intensity * gain;
+    double help3 = (sdp::pred_a1 + 1.0) * netgain;
     double help4 = exp(sdp::pred_a2 * log(f_intensity));
     Predat = sdp::b0(site) + sdp::b1(site) *
       ((help1 - help2)/help3) * sdp::b2(site) * help4;
@@ -758,14 +773,20 @@ arma::vec simFlying(int decision, int time, int site, int x)
   }
   distance = total_D * (1.0 + sdp::WindAssist(hit));
   
-  range = sdp::c * (1.0 - (1.0/ (sqrt(1.0 + (  ((double)(x) - (1 - f) * x) / (double)(sdp::MaxX)) ))));
-  
+  // Flight reserve, same rule as in Flying(): only the storage above (1 - f) * MaxX is fuel, the reserve is kept after the flight.
+  double xReserve = (1.0 - f) * sdp::MaxX;
+  double usableF  = std::max(0.0, (double)(x) - xReserve) / (double)(sdp::MaxX);
+  range = sdp::c * (1.0 - 1.0 / sqrt(1.0 + usableF));
+
   Sqr_c  = (sdp::c * sdp::c);
   Sqr_ca = (sdp::c - (range - distance))*(sdp::c - (range - distance));
-  nextx  = (((Sqr_c/Sqr_ca) - 1.0) * (double)(sdp::MaxX));
+  nextx  = xReserve + (((Sqr_c/Sqr_ca) - 1.0) * (double)(sdp::MaxX)); // reserve + remaining usable fuel
+  // Ground expenditure for the part of the last flight day not spent flying, same rule as in Flying()
+  nextx -= sdp::expend(dest_site, time) * (std::ceil(distance / sdp::speed) - distance / sdp::speed);
+  if (distance > range) nextx = 0.0; // destination out of range (only through decision error): x = 0, the R wrapper marks the bird as dead
+
   
-  
-  t =  time + (distance/ sdp::speed);
+  t =  time + std::ceil(distance / sdp::speed); // whole days, rounded up, same rule as in Flying()
   
   out(0) = Round(t);
   out(1) = Round(nextx);
