@@ -26,6 +26,11 @@
 # - makeSDPMig(): new argument stayThresh (default 1e-5): in the backward iteration the bird stays unless flying is better than
 #   foraging by more than stayThresh (relative). Passed to Init(). Removes back-and-forth flights between sites of equal value.
 # - fwdSimulation(): a NaN flight destination (no destination reachable) falls back to foraging.
+# - makeSDPMig(): the wintering site is treated like all other sites: its gain follows its own GDD jerk (was fixed at gainMax)
+#   and its predation parameters are the same as elsewhere (were x 0.001). With the stay rule, the fixed best wintering site
+#   kept the birds there until about DOY 116 (observed departure about DOY 79).
+# - makeSDPMig(): new argument rewardShape (default "flat"): "flat" gives MaxReward over the whole arrival window,
+#   "peak" gives MaxReward on the opening day, declining linearly to 0 at the window edges.
 
 #' Model object of class SDPMig
 #'
@@ -103,8 +108,10 @@ makeSDPMig <- function(siteTab,
                        b0 = 1e-04, b1 = 0.001, b2 = 1e-04,
                        flightMort = 5e-04, # mortality risk per day of flight time (same order as the daily predation risk at stopovers, about 1e-4 to 1e-3)
                        stayThresh = 1e-05, # the bird stays unless flying is better than foraging by more than this (relative); breaks ties between staying and flying
+                       rewardShape = c("flat", "peak"), # time reward at the breeding site: flat within the arrival window, or peaked at the opening day
                        stoch = 1
 ){
+  rewardShape <- match.arg(rewardShape)
   require(geosphere)
   require(terra)
   require(sf)
@@ -184,10 +191,7 @@ makeSDPMig <- function(siteTab,
   # hist(gain.y[,35]) # gain at migration peak (around doy 80)
   # hist(gain.y[,modelRun]) # gain at last model day
   # ggplot() + geom_sf(data=st_as_sf(siteTab_sort, coords = c(3,4), crs = 4326), aes(col = gain.y[,1]))
-  
-  # Fix gain of wintering site always to their DEE + the mean gain of all sites, assuming the bird knows the wintering ground and can always find resources
-  gain.y[which(hexIDs_sort==wintSite),] <- gainMax #dee_inX * 1.1
-  
+
   # Accuracy (foraging success, sampled from a normal distribution)
   ZStdNorm = c(-2.5, -2.0, -1.5, -1.0, -0.5,  0.0,  0.5,  1.0,  1.5,  2.0,  2.5)
   PStdNorm = c(0.0092, 0.0279, 0.0655, 0.1210, 0.1747, 0.2034, 0.1747, 0.1210, 0.0655, 0.0279, 0.0092)
@@ -222,6 +226,12 @@ makeSDPMig <- function(siteTab,
                  openingDayBreed_cpp + listParms$arrWindowAft, openingDayBreed_cpp + listParms$arrWindowAft + 1,
                  length(gain.x) - 1)
   yFTReward <- c(0, 0, MaxReward, MaxReward, 0, 0)
+  if (rewardShape == "peak") { # MaxReward on the opening day, declining linearly to 0 at the window edges
+    xFTReward <- c(0,
+                   openingDayBreed_cpp - listParms$arrWindowBef, openingDayBreed_cpp, openingDayBreed_cpp + listParms$arrWindowAft,
+                   length(gain.x) - 1)
+    yFTReward <- c(0, 0, MaxReward, 0, 0)
+  }
   # plot(xFTReward, yFTReward, type="l")
   
   # ___ Predation Rates per site______
@@ -229,11 +239,6 @@ makeSDPMig <- function(siteTab,
   b1 <- rep(b1, nrow(siteTab_sort)) # Body reserve dependent risk (e.g. the fatter the less mobile to escape)
   b2 <- rep(b2, nrow(siteTab_sort)) # Foraging intensity dependent risk (e.g. the more they feed the less they see predators)
 
-  # !!! Increase predation risk outside wintering grounds (1st site) to "simulate" the risk of migration relative to staying at wintering ground
-  b0[1] <- b0[1] * 0.001
-  b1[1] <- b1[1] * 0.001
-  b2[1] <- b2[1] * 0.001
-  
   #___ Distances between all sites__________
   # Matrix of distances between all sites, coords are assumed to be in decimal degrees
   distMat <- as.matrix(terra::distance(x = siteTab_sort[,3:4], lonlat = TRUE, method = "geo", unit="km"))
@@ -276,6 +281,7 @@ makeSDPMig <- function(siteTab,
       f     = listParms$f,
       flightMort = flightMort, # mortality risk per day of flight time
       stayThresh = stayThresh, # relative advantage that flying must have over foraging (backward iteration)
+      rewardShape = rewardShape, # shape of the time reward at the breeding site ("flat" or "peak")
       c     = c_new,
       # Wind and flight speed can vary per site so might go into site parameters but for now we leave them here for consistency with previous models
       WindAssist = 0, #can be either one value or an array [nhex, nhex, ndays] 

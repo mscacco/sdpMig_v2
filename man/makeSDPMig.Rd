@@ -16,6 +16,7 @@ makeSDPMig(
   b2 = 1e-04,
   flightMort = 5e-04,
   stayThresh = 1e-05,
+  rewardShape = c("flat", "peak"),
   stoch = 1
 )
 }
